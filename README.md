@@ -1,1 +1,1 @@
-# BPS_Islamic_school
+# bPS-islamic-school
