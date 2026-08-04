@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BPS Islamic School</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- SPLASH -->
+  <section id="splashScreen" class="screen splash">
+    <div class="star-mark" aria-hidden="true"></div>
+    <h1 class="brand-name">BPS Islamic School</h1>
+    <p class="brand-tag">Register &amp; Community Portal</p>
+  </section>
+
+  <!-- AUTH SCREEN -->
+  <section id="authScreen" class="screen hidden">
+    <header class="app-header">
+      <div class="star-mark small" aria-hidden="true"></div>
+      <h1 class="app-title">BPS Islamic School</h1>
+      <p class="app-subtitle">Register &amp; Community Portal</p>
+    </header>
+
+    <main class="auth-main">
+      <!-- STEP 1: enter email -->
+      <div class="card" id="emailStep">
+        <p class="eyebrow">SIGN IN</p>
+        <h2 class="card-title">Enter your email</h2>
+        <p class="card-copy">We'll send a secure sign-in link — no password needed.</p>
+
+        <label class="field-label" for="emailInput">Email address</label>
+        <input type="email" id="emailInput" class="text-input" placeholder="you@example.com" autocomplete="email" />
+
+        <div class="role-picker" id="rolePicker">
+          <p class="field-label">I am a:</p>
+          <div class="role-options">
+            <button type="button" class="role-btn active" data-role="parent">Parent</button>
+            <button type="button" class="role-btn" data-role="teacher">Teacher</button>
+          </div>
+          <p class="role-note">Admin accounts are created directly by the school.</p>
+        </div>
+
+        <button class="btn-primary" id="sendLinkBtn">Send sign-in link</button>
+        <p class="status-note" id="emailStatus"></p>
+      </div>
+
+      <!-- STEP 2: check email -->
+      <div class="card hidden" id="checkEmailStep">
+        <p class="eyebrow">CHECK YOUR EMAIL</p>
+        <h2 class="card-title">Link sent</h2>
+        <p class="card-copy" id="sentToCopy">We sent a sign-in link to your email. Open it on this device to continue.</p>
+        <button class="btn-secondary" id="backToEmailBtn">Use a different email</button>
+      </div>
+
+      <!-- STEP 3: confirm email (if link opened in a different browser/session) -->
+      <div class="card hidden" id="confirmEmailStep">
+        <p class="eyebrow">CONFIRM</p>
+        <h2 class="card-title">Confirm your email to finish signing in</h2>
+        <label class="field-label" for="confirmEmailInput">Email address</label>
+        <input type="email" id="confirmEmailInput" class="text-input" placeholder="you@example.com" />
+        <button class="btn-primary" id="confirmSignInBtn">Confirm &amp; sign in</button>
+        <p class="status-note" id="confirmStatus"></p>
+      </div>
+    </main>
+
+    <footer class="auth-footer">
+      <p>Trouble signing in? Contact the school office.</p>
+    </footer>
+  </section>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="auth.js"></script>
+</body>
+</html>
