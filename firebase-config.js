@@ -1,8 +1,6 @@
-// ============================================================
-// PASTE YOUR FIREBASE CONFIG HERE
-// Get this from: Firebase Console → Project Settings → General
-// → scroll to "Your apps" → Web app → the firebaseConfig object
-// ============================================================
+// Reusing your existing "islamic-f6f40" Firebase project — its Firestore
+// database is already set up and working. We are NOT using Firebase
+// Authentication at all anymore, so no email/SMS quota can ever apply.
 const firebaseConfig = {
   apiKey: "AIzaSyADcACNlH5etv8rVhd8DtX5jmgdVDOokRs",
   authDomain: "islamic-f6f40.firebaseapp.com",
@@ -14,5 +12,4 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
 const db = firebase.firestore();

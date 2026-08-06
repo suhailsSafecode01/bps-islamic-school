@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BPS Islamic School</title>
+<meta name="theme-color" content="#14324A" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- SPLASH -->
+  <section id="splashScreen" class="screen splash">
+    <div class="star-mark" aria-hidden="true"></div>
+    <h1 class="brand-name">BPS Islamic School</h1>
+    <p class="brand-tag">Register &amp; Community Portal</p>
+    <p class="founder-credit">
+      <span>Founder &amp; CEO: Molvi Farooq</span>
+      <span>Co-Founder: Suhail Yousuf</span>
+    </p>
+  </section>
+
+  <!-- AUTH SCREEN -->
+  <section id="authScreen" class="screen hidden">
+    <header class="app-header">
+      <div class="star-mark small" aria-hidden="true"></div>
+      <h1 class="app-title">BPS Islamic School</h1>
+      <p class="app-subtitle">Register &amp; Community Portal</p>
+    </header>
+
+    <main class="auth-main">
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" id="tabSignIn">Sign In</button>
+        <button type="button" class="auth-tab" id="tabRegister">Register</button>
+      </div>
+
+      <!-- SIGN IN -->
+      <div class="card" id="signInCard">
+        <p class="eyebrow">SIGN IN</p>
+        <h2 class="card-title">Welcome back</h2>
+
+        <label class="field-label" for="loginMobile">Mobile number</label>
+        <input type="tel" id="loginMobile" class="text-input" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" />
+
+        <label class="field-label" for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" class="text-input" placeholder="Password" autocomplete="current-password" />
+
+        <button class="btn-primary" id="loginBtn">Sign in</button>
+        <p class="status-note" id="loginStatus"></p>
+      </div>
+
+      <!-- REGISTER (Parent only) -->
+      <div class="card hidden" id="registerCard">
+        <p class="eyebrow">REGISTER</p>
+        <h2 class="card-title">Parent registration</h2>
+        <p class="card-copy">Your request will be reviewed by the school before you get access — just like joining a community group.</p>
+
+        <label class="field-label" for="regName">Full name</label>
+        <input type="text" id="regName" class="text-input" placeholder="Your full name" />
+
+        <label class="field-label" for="regMobile">Mobile number</label>
+        <input type="tel" id="regMobile" class="text-input" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" />
+
+        <label class="field-label" for="regAdmission">Student admission number</label>
+        <input type="text" id="regAdmission" class="text-input" placeholder="e.g. BPS-2024-014" />
+
+        <label class="field-label" for="regPassword">Create a password</label>
+        <input type="password" id="regPassword" class="text-input" placeholder="At least 6 characters" autocomplete="new-password" />
+
+        <button class="btn-primary" id="registerBtn">Send request</button>
+        <p class="status-note" id="registerStatus"></p>
+      </div>
+
+      <!-- PENDING (shown after registering, or on repeat sign-in attempts while pending) -->
+      <div class="card hidden" id="pendingCard">
+        <div class="pending-icon">⏳</div>
+        <p class="eyebrow" style="text-align:center;">REQUEST SENT</p>
+        <h2 class="card-title" style="text-align:center;">Waiting for approval</h2>
+        <p class="card-copy" style="text-align:center;">The school office will review your request. You'll be able to sign in once approved.</p>
+        <button class="btn-secondary" id="pendingBackBtn">Back to sign in</button>
+      </div>
+
+      <!-- REJECTED -->
+      <div class="card hidden" id="rejectedCard">
+        <p class="eyebrow" style="text-align:center;">REQUEST NOT APPROVED</p>
+        <h2 class="card-title" style="text-align:center;">Contact the school office</h2>
+        <p class="card-copy" style="text-align:center;">Your request wasn't approved. Please visit or contact the school office for help.</p>
+        <button class="btn-secondary" id="rejectedBackBtn">Back to sign in</button>
+      </div>
+    </main>
+
+    <footer class="auth-footer">
+      <p>Trouble signing in? Contact the school office.</p>
+    </footer>
+  </section>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="crypto-utils.js"></script>
+  <script src="auth.js"></script>
+</body>
+</html>
