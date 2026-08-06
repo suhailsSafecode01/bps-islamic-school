@@ -226,10 +226,34 @@ async function loadMemberList() {
       const row = document.createElement("div");
       row.className = "member-row";
       const roleText = d.role === "teacher" ? "Teacher" : d.role === "admin" ? "Admin" : "Parent";
-      row.innerHTML = `<span class="member-name">${d.name}</span><span class="member-role">${roleText}</span>`;
+      const canRemove = d.role !== "admin"; // safety: never let admin remove themselves from this list
+      row.innerHTML = `
+        <span class="member-name">${d.name} <span class="member-role">${roleText}</span></span>
+        ${canRemove ? `<button class="btn-remove" data-mobile="${d.mobile}" data-name="${d.name}">Remove</button>` : ""}
+      `;
       memberList.appendChild(row);
+    });
+
+    memberList.querySelectorAll(".btn-remove").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mobile = btn.dataset.mobile;
+        const name = btn.dataset.name;
+        if (confirm(`Remove ${name}'s access? They will need to register again to regain access.`)) {
+          removeMember(mobile);
+        }
+      });
     });
   } catch (err) {
     memberList.innerHTML = "<p class=\"card-copy\">Couldn't load member list.</p>";
+  }
+}
+
+async function removeMember(mobile) {
+  try {
+    await db.collection("users").doc(mobile).delete();
+    loadMemberList();
+  } catch (err) {
+    console.error(err);
+    alert("Couldn't remove this member. Please try again.");
   }
 }
