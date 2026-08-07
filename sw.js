@@ -1,11 +1,13 @@
-const CACHE_NAME = "bps-school-v1";
+const CACHE_NAME = "bps-school-v2";
 const CORE_FILES = [
   "index.html",
   "dashboard.html",
+  "install.html",
   "style.css",
   "auth.js",
   "dashboard.js",
   "crypto-utils.js",
+  "install.js",
   "firebase-config.js",
   "manifest.json",
   "icon-192.png",

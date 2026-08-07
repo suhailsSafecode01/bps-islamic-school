@@ -21,6 +21,10 @@ if (installBtn) {
 
 window.addEventListener("appinstalled", () => {
   if (installBtn) installBtn.classList.add("hidden");
+  // If we're on the dedicated install landing page, move straight into the app.
+  if (window.location.pathname.includes("install.html")) {
+    setTimeout(() => { window.location.href = "index.html"; }, 800);
+  }
 });
 
 // ---------- REGISTER SERVICE WORKER ----------

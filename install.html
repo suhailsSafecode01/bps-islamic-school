@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Install — BPS Islamic School</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#14324A" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <img src="icon-192.png" alt="" class="install-icon" />
+    <h1 class="app-title">BPS Islamic School</h1>
+    <p class="app-subtitle">Register &amp; Community Portal</p>
+  </header>
+
+  <main class="auth-main">
+    <div class="card" style="text-align:center;">
+      <p class="eyebrow">WELCOME</p>
+      <h2 class="card-title">Install the app</h2>
+      <p class="card-copy">Tap the button below to add BPS Islamic School to your home screen — just like any other app.</p>
+
+      <button class="btn-primary hidden" id="installBtn">Install App</button>
+
+      <div id="manualInstructions" class="manual-instructions hidden">
+        <p class="card-copy" style="text-align:left;"><strong>To install:</strong></p>
+        <p class="card-copy" style="text-align:left;" id="manualStepsText">
+          Tap your browser's menu button, then choose "Add to Home Screen" or "Install app."
+        </p>
+      </div>
+
+      <a href="index.html" class="btn-secondary" style="display:block;text-decoration:none;text-align:center;margin-top:1rem;">
+        Continue without installing
+      </a>
+    </div>
+
+    <p class="founder-credit" style="text-align:center;">
+      <span>Founder &amp; CEO: Molvi Farooq</span>
+      <span>Co-Founder: Suhail Yousuf</span>
+    </p>
+  </main>
+
+  <script src="install.js"></script>
+  <script>
+    // If the install prompt never fires within a couple seconds (already installed,
+    // iOS Safari, or an unsupported browser), show manual fallback steps instead
+    // of leaving the person staring at a blank card.
+    setTimeout(() => {
+      const btn = document.getElementById("installBtn");
+      const manual = document.getElementById("manualInstructions");
+      const stepsText = document.getElementById("manualStepsText");
+      if (btn && btn.classList.contains("hidden")) {
+        const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+        if (isIOS) {
+          stepsText.textContent = 'Tap the Share icon (square with an arrow) at the bottom of Safari, then choose "Add to Home Screen."';
+        }
+        manual.classList.remove("hidden");
+      }
+    }, 1500);
+  </script>
+</body>
+</html>
