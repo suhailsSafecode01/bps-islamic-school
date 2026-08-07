@@ -13,3 +13,10 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+
+// Cloudinary — used for document uploads instead of Firebase Storage
+// (Firebase Storage now requires a paid Blaze plan; Cloudinary's free
+// tier needs no card at all). Fill these in after creating a free
+// Cloudinary account — see the setup steps you were given.
+const CLOUDINARY_CLOUD_NAME = "ctuvsrin";
+const CLOUDINARY_UPLOAD_PRESET = "bps-islamic-school";
