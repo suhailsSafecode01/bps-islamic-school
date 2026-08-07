@@ -270,7 +270,6 @@ const DOCUMENT_TYPES = [
   { key: "transferCertificate", label: "Transfer Certificate" },
   { key: "reportCard", label: "Previous Report Card" },
   { key: "photo", label: "Passport-size Photo" },
-  { key: "other", label: "Other Document" },
 ];
 
 const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8MB
@@ -278,6 +277,10 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf
 
 const documentsList = document.getElementById("documentsList");
 const documentsStatus = document.getElementById("documentsStatus");
+const otherDocumentsList = document.getElementById("otherDocumentsList");
+const otherDocLabel = document.getElementById("otherDocLabel");
+const otherDocFile = document.getElementById("otherDocFile");
+const addOtherDocBtn = document.getElementById("addOtherDocBtn");
 
 function renderDocuments(existingDocs) {
   if (!documentsList) return;
@@ -315,26 +318,83 @@ function renderDocuments(existingDocs) {
   documentsList.querySelectorAll(".doc-upload-btn").forEach((btn) => {
     btn.addEventListener("click", () => handleDocUpload(btn.dataset.key, btn));
   });
+
+  renderOtherDocuments(existingDocs.otherDocuments || []);
+}
+
+function renderOtherDocuments(otherDocs) {
+  if (!otherDocumentsList) return;
+  if (otherDocs.length === 0) {
+    otherDocumentsList.innerHTML = `<p class="card-copy" style="font-size:0.85rem;">No additional documents added yet.</p>`;
+    return;
+  }
+  otherDocumentsList.innerHTML = "";
+  otherDocs.forEach((doc, index) => {
+    const row = document.createElement("div");
+    row.className = "doc-row";
+    row.innerHTML = `
+      <div class="doc-row-header">
+        <span class="doc-label">${doc.label}</span>
+        <span class="doc-status uploaded">Uploaded ✓</span>
+      </div>
+      <div class="doc-row-actions">
+        <a href="${doc.url}" target="_blank" rel="noopener" class="doc-view-link">View</a>
+        <button class="btn-remove other-doc-remove-btn" data-index="${index}">Remove</button>
+      </div>
+    `;
+    otherDocumentsList.appendChild(row);
+  });
+
+  otherDocumentsList.querySelectorAll(".other-doc-remove-btn").forEach((btn) => {
+    btn.addEventListener("click", () => removeOtherDocument(parseInt(btn.dataset.index, 10)));
+  });
+}
+
+async function removeOtherDocument(index) {
+  try {
+    const snap = await db.collection("users").doc(currentParentMobile).get();
+    const existing = snap.data().documents || {};
+    const list = existing.otherDocuments || [];
+    list.splice(index, 1);
+    existing.otherDocuments = list;
+    await db.collection("users").doc(currentParentMobile).update({ documents: existing });
+    renderOtherDocuments(list);
+  } catch (err) {
+    console.error(err);
+    alert("Couldn't remove this document. Please try again.");
+  }
+}
+
+async function uploadFileToCloudinary(file, subfolder) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+  formData.append("folder", `bps-school/${currentParentMobile}${subfolder ? "/" + subfolder : ""}`);
+
+  const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
+  const res = await fetch(uploadUrl, { method: "POST", body: formData });
+  if (!res.ok) {
+    throw new Error(`Upload failed (${res.status})`);
+  }
+  const result = await res.json();
+  return result.secure_url;
+}
+
+function validateFile(file) {
+  if (!file) return "Please choose a file first.";
+  if (!ALLOWED_TYPES.includes(file.type)) return "Please choose an image (JPG/PNG) or PDF file.";
+  if (file.size > MAX_FILE_SIZE) return "File is too large. Please choose a file under 8MB.";
+  if (CLOUDINARY_CLOUD_NAME.startsWith("PASTE_")) return "Document storage isn't set up yet. Contact the developer.";
+  return null;
 }
 
 async function handleDocUpload(docKey, btn) {
   const fileInput = document.getElementById(`file-${docKey}`);
   const file = fileInput.files[0];
 
-  if (!file) {
-    documentsStatus.textContent = "Please choose a file first.";
-    return;
-  }
-  if (!ALLOWED_TYPES.includes(file.type)) {
-    documentsStatus.textContent = "Please choose an image (JPG/PNG) or PDF file.";
-    return;
-  }
-  if (file.size > MAX_FILE_SIZE) {
-    documentsStatus.textContent = "File is too large. Please choose a file under 8MB.";
-    return;
-  }
-  if (CLOUDINARY_CLOUD_NAME.startsWith("PASTE_")) {
-    documentsStatus.textContent = "Document storage isn't set up yet. Contact the developer.";
+  const error = validateFile(file);
+  if (error) {
+    documentsStatus.textContent = error;
     return;
   }
 
@@ -342,21 +402,7 @@ async function handleDocUpload(docKey, btn) {
   documentsStatus.textContent = "Uploading…";
 
   try {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-    // Organize uploads per-parent so files are at least grouped sensibly,
-    // even though (being honest) this isn't real per-user access control —
-    // see the security note in project docs.
-    formData.append("folder", `bps-school/${currentParentMobile}`);
-
-    const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
-    const res = await fetch(uploadUrl, { method: "POST", body: formData });
-    if (!res.ok) {
-      throw new Error(`Upload failed (${res.status})`);
-    }
-    const result = await res.json();
-    const url = result.secure_url;
+    const url = await uploadFileToCloudinary(file);
 
     const snap = await db.collection("users").doc(currentParentMobile).get();
     const existing = snap.data().documents || {};
@@ -374,4 +420,44 @@ async function handleDocUpload(docKey, btn) {
     documentsStatus.textContent = "Upload failed. Please check your connection and try again.";
     btn.disabled = false;
   }
+}
+
+if (addOtherDocBtn) {
+  addOtherDocBtn.addEventListener("click", async () => {
+    const label = otherDocLabel.value.trim();
+    const file = otherDocFile.files[0];
+
+    if (!label) {
+      documentsStatus.textContent = "Please give this document a name.";
+      return;
+    }
+    const error = validateFile(file);
+    if (error) {
+      documentsStatus.textContent = error;
+      return;
+    }
+
+    addOtherDocBtn.disabled = true;
+    documentsStatus.textContent = "Uploading…";
+
+    try {
+      const url = await uploadFileToCloudinary(file, "other");
+
+      const snap = await db.collection("users").doc(currentParentMobile).get();
+      const existing = snap.data().documents || {};
+      const list = existing.otherDocuments || [];
+      list.push({ label, url, fileName: file.name, uploadedAt: Date.now() });
+      existing.otherDocuments = list;
+      await db.collection("users").doc(currentParentMobile).update({ documents: existing });
+
+      documentsStatus.textContent = "Document added.";
+      otherDocLabel.value = "";
+      otherDocFile.value = "";
+      renderOtherDocuments(list);
+    } catch (err) {
+      console.error(err);
+      documentsStatus.textContent = "Upload failed. Please check your connection and try again.";
+    }
+    addOtherDocBtn.disabled = false;
+  });
 }

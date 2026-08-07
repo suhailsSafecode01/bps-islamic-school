@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — BPS Islamic School</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header small-header">
+    <div class="star-mark small" aria-hidden="true"></div>
+    <div>
+      <h1 class="app-title small">BPS Islamic School</h1>
+      <p class="app-subtitle small" id="roleLabel">Loading…</p>
+    </div>
+    <button class="btn-signout" id="signOutBtn">Sign out</button>
+  </header>
+
+  <main class="dash-main">
+
+    <!-- LOADING -->
+    <div class="card" id="loadingCard">
+      <p class="card-copy">Loading your dashboard…</p>
+    </div>
+
+    <!-- NOT SIGNED IN -->
+    <div class="card hidden" id="notSignedInCard">
+      <p class="card-copy">You're not signed in.</p>
+      <a class="btn-primary" href="index.html" style="display:block;text-align:center;text-decoration:none;">Go to sign in</a>
+    </div>
+
+    <!-- ============ ADMIN ============ -->
+    <div class="card hidden" id="adminCard">
+      <p class="eyebrow">ADMIN</p>
+      <h2 class="card-title">Principal Dashboard</h2>
+      <p class="card-copy">Full school controls will appear here as each is built.</p>
+      <div class="tool-grid">
+        <div class="tool-tile">Manage Students</div>
+        <div class="tool-tile">All Documents</div>
+        <div class="tool-tile">All Test Results</div>
+        <div class="tool-tile">Manage Classes</div>
+        <div class="tool-tile">Send Notices</div>
+      </div>
+    </div>
+
+    <!-- ADMIN: Pending Requests -->
+    <div class="card hidden" id="pendingRequestsCard">
+      <p class="eyebrow">PENDING REQUESTS</p>
+      <h2 class="card-title">Parent registration requests</h2>
+      <div id="pendingRequestsList"><p class="card-copy">Loading…</p></div>
+    </div>
+
+    <!-- ADMIN: Add Teacher -->
+    <div class="card hidden" id="addMemberCard">
+      <p class="eyebrow">ADD TEACHER</p>
+      <h2 class="card-title">Give a teacher access</h2>
+      <p class="card-copy">Create a login for a teacher. Share the mobile number and password shown below with them directly.</p>
+
+      <label class="field-label" for="newMemberName">Full name</label>
+      <input type="text" id="newMemberName" class="text-input" placeholder="e.g. Aisha Khan" />
+
+      <label class="field-label" for="newMemberMobile">Mobile number</label>
+      <input type="tel" id="newMemberMobile" class="text-input" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" />
+
+      <button class="btn-primary" id="addMemberBtn">Create login</button>
+      <p class="status-note" id="addMemberStatus"></p>
+
+      <div class="card hidden" id="newMemberResult">
+        <p class="eyebrow">SHARE THESE DETAILS</p>
+        <p class="cred-line"><strong>Mobile:</strong> <span id="resultMobile"></span></p>
+        <p class="cred-line"><strong>Password:</strong> <span id="resultPassword"></span></p>
+        <button class="btn-secondary" id="copyCredsBtn">Copy details</button>
+      </div>
+
+      <div class="member-list" id="memberList"></div>
+    </div>
+
+    <!-- ============ TEACHER ============ -->
+    <div class="card hidden" id="teacherCard">
+      <p class="eyebrow">TEACHER</p>
+      <h2 class="card-title">Teacher Dashboard</h2>
+      <p class="card-copy">Class tools will appear here as each is built.</p>
+      <div class="tool-grid">
+        <div class="tool-tile">Upload Attendance</div>
+        <div class="tool-tile">Upload Homework</div>
+        <div class="tool-tile">Upload Results</div>
+        <div class="tool-tile">Notes &amp; Material</div>
+        <div class="tool-tile">Announcements</div>
+      </div>
+    </div>
+
+    <!-- ============ PARENT ============ -->
+    <div class="card hidden" id="parentCard">
+      <p class="eyebrow">PARENT</p>
+      <h2 class="card-title">Parent Dashboard</h2>
+      <p class="card-copy">Your child's information will appear here as each is built.</p>
+      <div class="tool-grid">
+        <div class="tool-tile">Notices</div>
+        <div class="tool-tile">Attendance</div>
+        <div class="tool-tile">Homework</div>
+        <div class="tool-tile">Results</div>
+        <div class="tool-tile">Timetable</div>
+      </div>
+    </div>
+
+    <!-- PARENT: Documents -->
+    <div class="card hidden" id="documentsCard">
+      <p class="eyebrow">DOCUMENTS</p>
+      <h2 class="card-title">Your child's documents</h2>
+      <p class="card-copy">Upload clear photos or PDFs. You can replace any document later if needed.</p>
+      <div id="documentsList"></div>
+      <p class="status-note" id="documentsStatus"></p>
+
+      <div class="docs-divider"></div>
+
+      <p class="eyebrow">ADDITIONAL DOCUMENTS</p>
+      <p class="card-copy">Add any other documents the school has asked for — vaccination record, caste certificate, migration certificate, and so on. Add as many as you need.</p>
+      <div id="otherDocumentsList"></div>
+
+      <div class="add-other-doc">
+        <label class="field-label" for="otherDocLabel">Document name</label>
+        <input type="text" id="otherDocLabel" class="text-input" placeholder="e.g. Vaccination Certificate" />
+        <input type="file" accept="image/*,application/pdf" id="otherDocFile" class="doc-file-input" />
+        <button class="btn-primary" id="addOtherDocBtn" style="margin-top:0.6rem;">Add document</button>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="crypto-utils.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
