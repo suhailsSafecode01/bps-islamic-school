@@ -5,10 +5,11 @@ const pendingRequestsCard = document.getElementById("pendingRequestsCard");
 const addMemberCard = document.getElementById("addMemberCard");
 const teacherCard = document.getElementById("teacherCard");
 const parentCard = document.getElementById("parentCard");
+const documentsCard = document.getElementById("documentsCard");
 const roleLabel = document.getElementById("roleLabel");
 const signOutBtn = document.getElementById("signOutBtn");
 
-const ALL_CARDS = [notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, teacherCard, parentCard];
+const ALL_CARDS = [notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, teacherCard, parentCard, documentsCard];
 
 function showOnly(elOrList) {
   const toShow = Array.isArray(elOrList) ? elOrList : [elOrList];
@@ -63,7 +64,9 @@ async function init() {
       showOnly(teacherCard);
     } else {
       roleLabel.textContent = "Parent — " + data.name;
-      showOnly(parentCard);
+      showOnly([parentCard, documentsCard]);
+      currentParentMobile = data.mobile;
+      renderDocuments(data.documents || {});
     }
   } catch (err) {
     console.error(err);
@@ -255,5 +258,120 @@ async function removeMember(mobile) {
   } catch (err) {
     console.error(err);
     alert("Couldn't remove this member. Please try again.");
+  }
+}
+
+// ---------- PARENT DOCUMENTS ----------
+let currentParentMobile = null;
+
+const DOCUMENT_TYPES = [
+  { key: "birthCertificate", label: "Birth Certificate" },
+  { key: "aadhaar", label: "Aadhaar Card" },
+  { key: "transferCertificate", label: "Transfer Certificate" },
+  { key: "reportCard", label: "Previous Report Card" },
+  { key: "photo", label: "Passport-size Photo" },
+  { key: "other", label: "Other Document" },
+];
+
+const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8MB
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+
+const documentsList = document.getElementById("documentsList");
+const documentsStatus = document.getElementById("documentsStatus");
+
+function renderDocuments(existingDocs) {
+  if (!documentsList) return;
+  documentsList.innerHTML = "";
+
+  DOCUMENT_TYPES.forEach((docType) => {
+    const info = existingDocs[docType.key];
+    const row = document.createElement("div");
+    row.className = "doc-row";
+
+    const statusText = info
+      ? `<span class="doc-status uploaded">Uploaded ✓</span>`
+      : `<span class="doc-status">Not uploaded</span>`;
+
+    const viewLink = info
+      ? `<a href="${info.url}" target="_blank" rel="noopener" class="doc-view-link">View</a>`
+      : "";
+
+    row.innerHTML = `
+      <div class="doc-row-header">
+        <span class="doc-label">${docType.label}</span>
+        ${statusText}
+      </div>
+      <div class="doc-row-actions">
+        <input type="file" accept="image/*,application/pdf" id="file-${docType.key}" class="doc-file-input" />
+        <button class="btn-secondary doc-upload-btn" data-key="${docType.key}">
+          ${info ? "Replace" : "Upload"}
+        </button>
+        ${viewLink}
+      </div>
+    `;
+    documentsList.appendChild(row);
+  });
+
+  documentsList.querySelectorAll(".doc-upload-btn").forEach((btn) => {
+    btn.addEventListener("click", () => handleDocUpload(btn.dataset.key, btn));
+  });
+}
+
+async function handleDocUpload(docKey, btn) {
+  const fileInput = document.getElementById(`file-${docKey}`);
+  const file = fileInput.files[0];
+
+  if (!file) {
+    documentsStatus.textContent = "Please choose a file first.";
+    return;
+  }
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    documentsStatus.textContent = "Please choose an image (JPG/PNG) or PDF file.";
+    return;
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    documentsStatus.textContent = "File is too large. Please choose a file under 8MB.";
+    return;
+  }
+  if (CLOUDINARY_CLOUD_NAME.startsWith("PASTE_")) {
+    documentsStatus.textContent = "Document storage isn't set up yet. Contact the developer.";
+    return;
+  }
+
+  btn.disabled = true;
+  documentsStatus.textContent = "Uploading…";
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    // Organize uploads per-parent so files are at least grouped sensibly,
+    // even though (being honest) this isn't real per-user access control —
+    // see the security note in project docs.
+    formData.append("folder", `bps-school/${currentParentMobile}`);
+
+    const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
+    const res = await fetch(uploadUrl, { method: "POST", body: formData });
+    if (!res.ok) {
+      throw new Error(`Upload failed (${res.status})`);
+    }
+    const result = await res.json();
+    const url = result.secure_url;
+
+    const snap = await db.collection("users").doc(currentParentMobile).get();
+    const existing = snap.data().documents || {};
+    existing[docKey] = {
+      url,
+      fileName: file.name,
+      uploadedAt: Date.now(),
+    };
+    await db.collection("users").doc(currentParentMobile).update({ documents: existing });
+
+    documentsStatus.textContent = "Uploaded successfully.";
+    renderDocuments(existing);
+  } catch (err) {
+    console.error(err);
+    documentsStatus.textContent = "Upload failed. Please check your connection and try again.";
+    btn.disabled = false;
   }
 }
