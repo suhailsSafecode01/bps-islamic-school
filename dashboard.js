@@ -98,7 +98,7 @@ async function loadPendingRequests() {
       row.innerHTML = `
         <div class="request-name">${d.name}</div>
         <div class="request-detail">Mobile: ${d.mobile}</div>
-        <div class="request-detail">Admission No: ${d.admissionNumber}</div>
+        <div class="request-detail">Admission No: ${d.admissionNumber}${d.studentName ? " — matched: " + d.studentName + (d.studentClassName ? " (" + d.studentClassName + ")" : "") : " — ⚠️ no matching student found"}</div>
         <div class="request-actions">
           <button class="btn-approve" data-mobile="${d.mobile}">Approve</button>
           <button class="btn-reject" data-mobile="${d.mobile}">Reject</button>
@@ -275,6 +275,33 @@ function countDocuments(docs) {
 }
 const DOCUMENT_TYPES_FOR_COUNT = ["birthCertificate", "aadhaar", "transferCertificate", "reportCard", "photo"];
 
+function renderDocumentsHTML(docs) {
+  const fixedLabels = {
+    birthCertificate: "Birth Certificate",
+    aadhaar: "Aadhaar Card",
+    transferCertificate: "Transfer Certificate",
+    reportCard: "Previous Report Card",
+    photo: "Passport-size Photo",
+  };
+
+  let html = "";
+  Object.keys(fixedLabels).forEach((key) => {
+    const info = docs[key];
+    html += `<div class="admin-doc-row">
+      <span>${fixedLabels[key]}</span>
+      ${info ? `<a href="${info.url}" target="_blank" rel="noopener">View</a>` : `<span class="doc-status">Not uploaded</span>`}
+    </div>`;
+  });
+  (docs.otherDocuments || []).forEach((doc) => {
+    html += `<div class="admin-doc-row">
+      <span>${doc.label}</span>
+      <a href="${doc.url}" target="_blank" rel="noopener">View</a>
+    </div>`;
+  });
+
+  return html || `<p class="card-copy">No documents uploaded yet.</p>`;
+}
+
 async function toggleAdminDocView(mobile) {
   const panel = document.getElementById(`docview-${mobile}`);
   if (!panel) return;
@@ -290,30 +317,7 @@ async function toggleAdminDocView(mobile) {
   try {
     const snap = await db.collection("users").doc(mobile).get();
     const docs = snap.data().documents || {};
-    const fixedLabels = {
-      birthCertificate: "Birth Certificate",
-      aadhaar: "Aadhaar Card",
-      transferCertificate: "Transfer Certificate",
-      reportCard: "Previous Report Card",
-      photo: "Passport-size Photo",
-    };
-
-    let html = "";
-    Object.keys(fixedLabels).forEach((key) => {
-      const info = docs[key];
-      html += `<div class="admin-doc-row">
-        <span>${fixedLabels[key]}</span>
-        ${info ? `<a href="${info.url}" target="_blank" rel="noopener">View</a>` : `<span class="doc-status">Not uploaded</span>`}
-      </div>`;
-    });
-    (docs.otherDocuments || []).forEach((doc) => {
-      html += `<div class="admin-doc-row">
-        <span>${doc.label}</span>
-        <a href="${doc.url}" target="_blank" rel="noopener">View</a>
-      </div>`;
-    });
-
-    panel.innerHTML = html || `<p class="card-copy">No documents uploaded yet.</p>`;
+    panel.innerHTML = renderDocumentsHTML(docs);
   } catch (err) {
     panel.innerHTML = `<p class="card-copy">Couldn't load documents.</p>`;
   }
@@ -705,6 +709,8 @@ function renderStudents(students) {
         <button class="btn-remove" data-id="${s.id}" data-name="${s.name}">Delete</button>
       </div>
       <div class="request-detail">Admission No: ${s.admissionNumber}${s.parentMobile ? " · Parent: " + s.parentMobile : ""}</div>
+      <button class="btn-view-docs" data-student-id="${s.id}" data-admission="${s.admissionNumber}">View Documents</button>
+      <div class="admin-doc-view hidden" id="studentdocview-${s.id}"></div>
     `;
     studentsList.appendChild(row);
   });
@@ -715,6 +721,49 @@ function renderStudents(students) {
       }
     });
   });
+  studentsList.querySelectorAll(".btn-view-docs").forEach((btn) => {
+    btn.addEventListener("click", () => toggleStudentDocView(btn.dataset.studentId, btn.dataset.admission));
+  });
+}
+
+async function toggleStudentDocView(studentId, admissionNumber) {
+  const panel = document.getElementById(`studentdocview-${studentId}`);
+  if (!panel) return;
+
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  panel.innerHTML = `<p class="card-copy">Loading…</p>`;
+
+  try {
+    // Find the parent account linked to this student (by studentId first,
+    // falling back to matching admission number for older records).
+    let parentSnap = await db.collection("users").where("studentId", "==", studentId).get();
+    let parentDoc = null;
+    parentSnap.forEach((doc) => { parentDoc = doc.data(); });
+
+    if (!parentDoc) {
+      const fallback = await db.collection("users").where("admissionNumber", "==", admissionNumber).get();
+      fallback.forEach((doc) => { parentDoc = doc.data(); });
+    }
+
+    if (!parentDoc) {
+      panel.innerHTML = `<p class="card-copy">No parent has registered for this student yet.</p>`;
+      return;
+    }
+    if (parentDoc.status === "pending") {
+      panel.innerHTML = `<p class="card-copy">A parent has registered but is still pending approval.</p>`;
+      return;
+    }
+
+    panel.innerHTML = renderDocumentsHTML(parentDoc.documents || {});
+  } catch (err) {
+    console.error(err);
+    panel.innerHTML = `<p class="card-copy">Couldn't load documents.</p>`;
+  }
 }
 
 async function deleteStudent(studentId) {
