@@ -230,11 +230,23 @@ async function loadMemberList() {
       row.className = "member-row";
       const roleText = d.role === "teacher" ? "Teacher" : d.role === "admin" ? "Admin" : "Parent";
       const canRemove = d.role !== "admin"; // safety: never let admin remove themselves from this list
+      const docCount = countDocuments(d.documents || {});
+      const docsBtn = d.role === "parent"
+        ? `<button class="btn-view-docs" data-mobile="${d.mobile}">Documents (${docCount})</button>`
+        : "";
       row.innerHTML = `
-        <span class="member-name">${d.name} <span class="member-role">${roleText}</span></span>
-        ${canRemove ? `<button class="btn-remove" data-mobile="${d.mobile}" data-name="${d.name}">Remove</button>` : ""}
+        <div class="member-row-top">
+          <span class="member-name">${d.name} <span class="member-role">${roleText}</span></span>
+          ${canRemove ? `<button class="btn-remove" data-mobile="${d.mobile}" data-name="${d.name}">Remove</button>` : ""}
+        </div>
+        ${docsBtn}
+        <div class="admin-doc-view hidden" id="docview-${d.mobile}"></div>
       `;
       memberList.appendChild(row);
+    });
+
+    memberList.querySelectorAll(".btn-view-docs").forEach((btn) => {
+      btn.addEventListener("click", () => toggleAdminDocView(btn.dataset.mobile));
     });
 
     memberList.querySelectorAll(".btn-remove").forEach((btn) => {
@@ -248,6 +260,58 @@ async function loadMemberList() {
     });
   } catch (err) {
     memberList.innerHTML = "<p class=\"card-copy\">Couldn't load member list.</p>";
+  }
+}
+
+function countDocuments(docs) {
+  let count = 0;
+  DOCUMENT_TYPES_FOR_COUNT.forEach((key) => { if (docs[key]) count++; });
+  if (docs.otherDocuments) count += docs.otherDocuments.length;
+  return count;
+}
+const DOCUMENT_TYPES_FOR_COUNT = ["birthCertificate", "aadhaar", "transferCertificate", "reportCard", "photo"];
+
+async function toggleAdminDocView(mobile) {
+  const panel = document.getElementById(`docview-${mobile}`);
+  if (!panel) return;
+
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  panel.innerHTML = `<p class="card-copy">Loading documents…</p>`;
+
+  try {
+    const snap = await db.collection("users").doc(mobile).get();
+    const docs = snap.data().documents || {};
+    const fixedLabels = {
+      birthCertificate: "Birth Certificate",
+      aadhaar: "Aadhaar Card",
+      transferCertificate: "Transfer Certificate",
+      reportCard: "Previous Report Card",
+      photo: "Passport-size Photo",
+    };
+
+    let html = "";
+    Object.keys(fixedLabels).forEach((key) => {
+      const info = docs[key];
+      html += `<div class="admin-doc-row">
+        <span>${fixedLabels[key]}</span>
+        ${info ? `<a href="${info.url}" target="_blank" rel="noopener">View</a>` : `<span class="doc-status">Not uploaded</span>`}
+      </div>`;
+    });
+    (docs.otherDocuments || []).forEach((doc) => {
+      html += `<div class="admin-doc-row">
+        <span>${doc.label}</span>
+        <a href="${doc.url}" target="_blank" rel="noopener">View</a>
+      </div>`;
+    });
+
+    panel.innerHTML = html || `<p class="card-copy">No documents uploaded yet.</p>`;
+  } catch (err) {
+    panel.innerHTML = `<p class="card-copy">Couldn't load documents.</p>`;
   }
 }
 
