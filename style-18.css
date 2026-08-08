@@ -1,0 +1,475 @@
+:root {
+  --navy: #14324A;
+  --navy-dark: #0D2436;
+  --gold: #C79A45;
+  --gold-soft: #E4C989;
+  --cream: #F6F2E8;
+  --paper: #FFFDF8;
+  --ink: #22303D;
+  --ink-soft: #5B6B78;
+  --line: #D9CFC0;
+  --green: #3E7C59;
+  --red: #B5453D;
+  font-size: 16px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2 { font-family: 'Spectral', serif; margin: 0; }
+.hidden { display: none !important; }
+
+/* ---------- 8-point star motif ---------- */
+.star-mark {
+  width: 52px;
+  height: 52px;
+  position: relative;
+  margin: 0 auto 1.25rem;
+}
+.star-mark::before,
+.star-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--gold);
+}
+.star-mark::before { transform: rotate(0deg); }
+.star-mark::after { transform: rotate(45deg); }
+.star-mark.small {
+  width: 32px;
+  height: 32px;
+  margin: 0 0 0.6rem;
+}
+
+/* ---------- SPLASH ---------- */
+.splash {
+  min-height: 100vh;
+  background: var(--navy);
+  background-image: radial-gradient(circle at 50% 30%, rgba(199,154,69,0.08) 0, transparent 60%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+}
+.splash .star-mark::before,
+.splash .star-mark::after { border-color: var(--gold-soft); }
+.brand-name {
+  color: var(--paper);
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+.brand-tag {
+  color: rgba(246,242,232,0.65);
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- APP HEADER ---------- */
+.app-header {
+  background: var(--navy);
+  color: var(--paper);
+  text-align: center;
+  padding: 2rem 1.5rem 1.75rem;
+  border-bottom: 3px solid var(--gold);
+  position: relative;
+}
+.app-title { font-size: 1.4rem; font-weight: 600; }
+.app-subtitle {
+  color: rgba(246,242,232,0.65);
+  font-size: 0.85rem;
+  margin-top: 0.4rem;
+}
+.dash-header { padding-bottom: 1.25rem; }
+.small-header {
+  padding: 1.1rem 1.25rem;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.small-header .star-mark { position: static; margin: 0; }
+.app-title.small { font-size: 1.05rem; }
+.app-subtitle.small { font-size: 0.75rem; margin-top: 0.15rem; }
+.btn-signout {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  background: transparent;
+  border: 1px solid rgba(246,242,232,0.35);
+  color: rgba(246,242,232,0.85);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* ---------- MAIN / CARDS ---------- */
+.auth-main, .dash-main {
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1.75rem 1.5rem;
+  box-shadow: 0 10px 24px -18px rgba(20,50,74,0.35);
+  margin-bottom: 1.25rem;
+}
+
+.eyebrow {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  color: var(--gold);
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
+}
+.card-title { font-size: 1.25rem; line-height: 1.35; margin-bottom: 0.6rem; }
+.card-copy { color: var(--ink-soft); font-size: 0.92rem; line-height: 1.55; margin: 0 0 1.1rem; }
+
+/* ---------- FORM ---------- */
+.field-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 0.4rem;
+}
+.text-input {
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+  font-size: 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 6px;
+  border: 1.5px solid var(--line);
+  background: var(--cream);
+  color: var(--ink);
+  margin-bottom: 1.1rem;
+}
+.text-input:focus { outline: none; border-color: var(--navy); }
+
+.role-picker { margin-bottom: 1.25rem; }
+.role-options { display: flex; gap: 0.6rem; margin-bottom: 0.5rem; }
+.role-btn {
+  flex: 1;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.65rem;
+  border-radius: 6px;
+  border: 1.5px solid var(--line);
+  background: var(--cream);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.role-btn.active {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: var(--paper);
+}
+.role-note { font-size: 0.78rem; color: var(--ink-soft); margin: 0; }
+
+.btn-primary, .btn-secondary {
+  display: inline-block;
+  width: 100%;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.btn-primary { background: var(--navy); color: var(--paper); }
+.btn-primary:disabled { opacity: 0.6; cursor: default; }
+.btn-secondary { background: transparent; color: var(--navy); border: 1.5px solid var(--navy); }
+
+.status-note {
+  margin: 0.8rem 0 0;
+  font-size: 0.85rem;
+  color: var(--red);
+  min-height: 1.1em;
+}
+
+.auth-footer {
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  padding-bottom: 2rem;
+}
+
+/* ---------- DASHBOARD TILES ---------- */
+.tool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.tool-tile {
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1rem 0.85rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--navy);
+  text-align: center;
+}
+
+@media (max-width: 380px) {
+  .tool-grid { grid-template-columns: 1fr; }
+}
+
+/* Add Member tool */
+.cred-line {
+  font-size: 0.95rem;
+  margin: 0.3rem 0;
+  color: var(--ink);
+}
+.cred-line strong { color: var(--navy); }
+#newMemberResult {
+  margin-top: 1.1rem;
+  background: var(--cream);
+}
+.member-list { margin-top: 1.5rem; }
+.member-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+.member-name { color: var(--ink); font-weight: 600; }
+.member-role {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  background: var(--cream);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  margin-left: 0.4rem;
+}
+.btn-remove {
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.install-qr {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 1rem auto;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.founder-credit {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  color: var(--gold-soft);
+  opacity: 0.85;
+  margin-top: 1.4rem;
+  line-height: 1.6;
+}
+.founder-credit span { display: block; }
+
+/* ---- Auth tabs (Sign in / Register) ---- */
+.auth-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.2rem;
+}
+.auth-tab {
+  flex: 1;
+  padding: 0.6rem;
+  text-align: center;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.auth-tab.active {
+  background: var(--navy);
+  color: white;
+  border-color: var(--navy);
+}
+
+/* ---- Pending approval screen ---- */
+.pending-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  background: var(--cream);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+}
+
+/* ---- Pending requests list (admin) ---- */
+.request-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.9rem;
+  margin-bottom: 0.7rem;
+}
+.request-name { font-weight: 700; color: var(--navy); font-size: 0.95rem; }
+.request-detail { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.15rem; }
+.request-actions { display: flex; gap: 0.6rem; margin-top: 0.7rem; }
+.btn-approve, .btn-reject {
+  flex: 1;
+  padding: 0.55rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  border: none;
+  cursor: pointer;
+}
+.btn-approve { background: var(--green); color: white; }
+.btn-reject { background: transparent; color: var(--red); border: 1px solid var(--red); }
+
+/* ---- Install landing page ---- */
+.install-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  margin: 0 auto 0.75rem;
+  display: block;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.manual-instructions {
+  margin-top: 1rem;
+  padding: 0.9rem;
+  background: var(--cream);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+/* ---- Document upload rows ---- */
+.doc-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.9rem;
+  margin-bottom: 0.7rem;
+}
+.doc-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.doc-label { font-weight: 600; color: var(--navy); font-size: 0.9rem; }
+.doc-status {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  background: var(--cream);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+.doc-status.uploaded { color: var(--green); background: rgba(62,124,89,0.12); }
+.doc-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.doc-file-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+.doc-upload-btn {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.doc-view-link {
+  font-size: 0.8rem;
+  color: var(--navy);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* ---- Additional documents section ---- */
+.docs-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 1.5rem 0;
+}
+.add-other-doc {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--cream);
+  border-radius: 10px;
+}
+
+/* ---- Admin document viewing ---- */
+.member-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.btn-view-docs {
+  margin-top: 0.5rem;
+  background: transparent;
+  border: 1px solid var(--navy);
+  color: var(--navy);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.admin-doc-view {
+  margin-top: 0.7rem;
+  padding: 0.7rem;
+  background: var(--cream);
+  border-radius: 8px;
+}
+.admin-doc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.admin-doc-row:last-child { border-bottom: none; }
+.admin-doc-row a {
+  color: var(--navy);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* ---- Class/Student select dropdown ---- */
+select.text-input {
+  appearance: none;
+  background-color: var(--paper);
+}

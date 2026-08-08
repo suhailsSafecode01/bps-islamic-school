@@ -3,13 +3,15 @@ const notSignedInCard = document.getElementById("notSignedInCard");
 const adminCard = document.getElementById("adminCard");
 const pendingRequestsCard = document.getElementById("pendingRequestsCard");
 const addMemberCard = document.getElementById("addMemberCard");
+const manageClassesCard = document.getElementById("manageClassesCard");
+const manageStudentsCard = document.getElementById("manageStudentsCard");
 const teacherCard = document.getElementById("teacherCard");
 const parentCard = document.getElementById("parentCard");
 const documentsCard = document.getElementById("documentsCard");
 const roleLabel = document.getElementById("roleLabel");
 const signOutBtn = document.getElementById("signOutBtn");
 
-const ALL_CARDS = [notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, teacherCard, parentCard, documentsCard];
+const ALL_CARDS = [notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard, teacherCard, parentCard, documentsCard];
 
 function showOnly(elOrList) {
   const toShow = Array.isArray(elOrList) ? elOrList : [elOrList];
@@ -56,9 +58,11 @@ async function init() {
 
     if (data.role === "admin") {
       roleLabel.textContent = "Admin — " + data.name;
-      showOnly([adminCard, pendingRequestsCard, addMemberCard]);
+      showOnly([adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard]);
       loadPendingRequests();
       loadMemberList();
+      loadClasses();
+      loadStudents();
     } else if (data.role === "teacher") {
       roleLabel.textContent = "Teacher — " + data.name;
       showOnly(teacherCard);
@@ -523,5 +527,218 @@ if (addOtherDocBtn) {
       documentsStatus.textContent = "Upload failed. Please check your connection and try again.";
     }
     addOtherDocBtn.disabled = false;
+  });
+}
+
+// ---------- MANAGE CLASSES (admin) ----------
+const newClassName = document.getElementById("newClassName");
+const addClassBtn = document.getElementById("addClassBtn");
+const classStatus = document.getElementById("classStatus");
+const classesList = document.getElementById("classesList");
+const newStudentClass = document.getElementById("newStudentClass");
+
+let cachedClasses = [];
+
+function slugify(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+addClassBtn.addEventListener("click", async () => {
+  const name = newClassName.value.trim();
+  if (!name) {
+    classStatus.textContent = "Please enter a class name.";
+    return;
+  }
+  const classId = slugify(name);
+  if (!classId) {
+    classStatus.textContent = "Please enter a valid class name.";
+    return;
+  }
+
+  addClassBtn.disabled = true;
+  classStatus.textContent = "Adding…";
+
+  try {
+    const existing = await db.collection("classes").doc(classId).get();
+    if (existing.exists) {
+      classStatus.textContent = "A class with this name already exists.";
+      addClassBtn.disabled = false;
+      return;
+    }
+    await db.collection("classes").doc(classId).set({ name, createdAt: Date.now() });
+    newClassName.value = "";
+    classStatus.textContent = "Class added.";
+    loadClasses();
+  } catch (err) {
+    console.error(err);
+    classStatus.textContent = "Couldn't add class. Please try again.";
+  }
+  addClassBtn.disabled = false;
+});
+
+async function loadClasses() {
+  if (!classesList) return;
+  classesList.innerHTML = "<p class=\"card-copy\">Loading…</p>";
+  try {
+    const snap = await db.collection("classes").get();
+    cachedClasses = [];
+    snap.forEach((doc) => cachedClasses.push({ id: doc.id, ...doc.data() }));
+    cachedClasses.sort((a, b) => a.name.localeCompare(b.name));
+
+    if (cachedClasses.length === 0) {
+      classesList.innerHTML = "<p class=\"card-copy\">No classes yet.</p>";
+    } else {
+      classesList.innerHTML = "";
+      cachedClasses.forEach((c) => {
+        const row = document.createElement("div");
+        row.className = "member-row";
+        row.innerHTML = `<span class="member-name">${c.name}</span><button class="btn-remove" data-id="${c.id}" data-name="${c.name}">Delete</button>`;
+        classesList.appendChild(row);
+      });
+      classesList.querySelectorAll(".btn-remove").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (confirm(`Delete "${btn.dataset.name}"? This won't remove students already assigned to it.`)) {
+            deleteClass(btn.dataset.id);
+          }
+        });
+      });
+    }
+
+    // Refresh the dropdown used when adding a student
+    if (newStudentClass) {
+      newStudentClass.innerHTML = cachedClasses.length
+        ? cachedClasses.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
+        : `<option value="">No classes yet — add one above first</option>`;
+    }
+  } catch (err) {
+    classesList.innerHTML = "<p class=\"card-copy\">Couldn't load classes.</p>";
+  }
+}
+
+async function deleteClass(classId) {
+  try {
+    await db.collection("classes").doc(classId).delete();
+    loadClasses();
+  } catch (err) {
+    alert("Couldn't delete class. Please try again.");
+  }
+}
+
+// ---------- MANAGE STUDENTS (admin) ----------
+const newStudentName = document.getElementById("newStudentName");
+const newStudentAdmission = document.getElementById("newStudentAdmission");
+const newStudentParentMobile = document.getElementById("newStudentParentMobile");
+const addStudentBtn = document.getElementById("addStudentBtn");
+const studentStatus = document.getElementById("studentStatus");
+const studentsList = document.getElementById("studentsList");
+const studentSearchInput = document.getElementById("studentSearchInput");
+
+let cachedStudents = [];
+
+addStudentBtn.addEventListener("click", async () => {
+  const name = newStudentName.value.trim();
+  const admissionNumber = newStudentAdmission.value.trim();
+  const classId = newStudentClass.value;
+  const parentMobile = newStudentParentMobile.value.trim().replace(/\D/g, "");
+
+  if (!name) { studentStatus.textContent = "Please enter the student's name."; return; }
+  if (!admissionNumber) { studentStatus.textContent = "Please enter an admission number."; return; }
+  if (!classId) { studentStatus.textContent = "Please add a class first, then select it."; return; }
+  if (parentMobile && parentMobile.length !== 10) { studentStatus.textContent = "Parent mobile number should be 10 digits, or left blank."; return; }
+
+  addStudentBtn.disabled = true;
+  studentStatus.textContent = "Adding…";
+
+  try {
+    const existing = await db.collection("students").where("admissionNumber", "==", admissionNumber).get();
+    if (!existing.empty) {
+      studentStatus.textContent = "A student with this admission number already exists.";
+      addStudentBtn.disabled = false;
+      return;
+    }
+
+    const className = (cachedClasses.find((c) => c.id === classId) || {}).name || "";
+    await db.collection("students").add({
+      name, admissionNumber, classId, className,
+      parentMobile: parentMobile || null,
+      createdAt: Date.now(),
+    });
+
+    newStudentName.value = "";
+    newStudentAdmission.value = "";
+    newStudentParentMobile.value = "";
+    studentStatus.textContent = "Student added.";
+    loadStudents();
+  } catch (err) {
+    console.error(err);
+    studentStatus.textContent = "Couldn't add student. Please try again.";
+  }
+  addStudentBtn.disabled = false;
+});
+
+async function loadStudents() {
+  if (!studentsList) return;
+  studentsList.innerHTML = "<p class=\"card-copy\">Loading…</p>";
+  try {
+    const snap = await db.collection("students").get();
+    cachedStudents = [];
+    snap.forEach((doc) => cachedStudents.push({ id: doc.id, ...doc.data() }));
+    cachedStudents.sort((a, b) => a.name.localeCompare(b.name));
+    renderStudents(cachedStudents);
+  } catch (err) {
+    studentsList.innerHTML = "<p class=\"card-copy\">Couldn't load students.</p>";
+  }
+}
+
+function renderStudents(students) {
+  if (students.length === 0) {
+    studentsList.innerHTML = "<p class=\"card-copy\">No students found.</p>";
+    return;
+  }
+  studentsList.innerHTML = "";
+  students.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "member-row";
+    row.innerHTML = `
+      <div class="member-row-top">
+        <span class="member-name">${s.name} <span class="member-role">${s.className || "No class"}</span></span>
+        <button class="btn-remove" data-id="${s.id}" data-name="${s.name}">Delete</button>
+      </div>
+      <div class="request-detail">Admission No: ${s.admissionNumber}${s.parentMobile ? " · Parent: " + s.parentMobile : ""}</div>
+    `;
+    studentsList.appendChild(row);
+  });
+  studentsList.querySelectorAll(".btn-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (confirm(`Delete student "${btn.dataset.name}"? This cannot be undone.`)) {
+        deleteStudent(btn.dataset.id);
+      }
+    });
+  });
+}
+
+async function deleteStudent(studentId) {
+  try {
+    await db.collection("students").doc(studentId).delete();
+    loadStudents();
+  } catch (err) {
+    alert("Couldn't delete student. Please try again.");
+  }
+}
+
+if (studentSearchInput) {
+  studentSearchInput.addEventListener("input", () => {
+    const q = studentSearchInput.value.trim().toLowerCase();
+    if (!q) {
+      renderStudents(cachedStudents);
+      return;
+    }
+    const filtered = cachedStudents.filter((s) =>
+      (s.name || "").toLowerCase().includes(q) ||
+      (s.admissionNumber || "").toLowerCase().includes(q) ||
+      (s.className || "").toLowerCase().includes(q) ||
+      (s.parentMobile || "").includes(q)
+    );
+    renderStudents(filtered);
   });
 }
