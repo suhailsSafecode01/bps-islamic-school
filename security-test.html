@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Security Test — BPS Islamic School</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #F6F2E8; color: #22303D; padding: 1.2rem; max-width: 32rem; margin: 0 auto; }
+  h1 { font-size: 1.2rem; color: #14324A; }
+  .result { padding: 0.9rem; border-radius: 10px; margin: 0.7rem 0; font-size: 0.95rem; }
+  .pass { background: #e3f2e8; border: 1px solid #3E7C59; color: #235438; }
+  .fail { background: #fbe4e2; border: 1px solid #B5453D; color: #7c2e26; }
+  .pending { background: #eee; border: 1px solid #ccc; color: #555; }
+  .verdict { font-size: 1.3rem; font-weight: bold; text-align: center; padding: 1.2rem; border-radius: 12px; margin-top: 1.5rem; }
+  button { background: #14324A; color: white; border: none; padding: 0.8rem 1.4rem; border-radius: 8px; font-size: 1rem; }
+</style>
+</head>
+<body>
+  <h1>🔒 BPS Islamic School — Security Test</h1>
+  <p>This runs directly against your real, live Firebase project — using a real approved test parent account — and checks whether that account can escalate itself to Admin, or read another person's data. Nothing here touches your app's files.</p>
+  <button id="runBtn">Run Security Test</button>
+  <div id="results"></div>
+  <div id="verdict"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyADcACNlH5etv8rVhd8DtX5jmgdVDOokRs",
+      authDomain: "islamic-f6f40.firebaseapp.com",
+      projectId: "islamic-f6f40",
+      storageBucket: "islamic-f6f40.firebasestorage.app",
+      messagingSenderId: "663854937617",
+      appId: "1:663854937617:web:f2451a9657a62c55e2e3b0",
+    };
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    const TEST_MOBILE = "1234567890";
+    const TEST_PASSWORD = "123456";
+    const TEST_EMAIL = TEST_MOBILE + "@bpsschool.local";
+
+    const resultsEl = document.getElementById("results");
+    const verdictEl = document.getElementById("verdict");
+    let allPassed = true;
+
+    function addResult(label, passed, detail) {
+      const div = document.createElement("div");
+      div.className = "result " + (passed ? "pass" : "fail");
+      div.innerHTML = `<strong>${passed ? "✅ PASS" : "❌ FAIL"}</strong> — ${label}<br><small>${detail || ""}</small>`;
+      resultsEl.appendChild(div);
+      if (!passed) allPassed = false;
+    }
+
+    document.getElementById("runBtn").addEventListener("click", async () => {
+      resultsEl.innerHTML = "";
+      verdictEl.innerHTML = "";
+      allPassed = true;
+
+      // Step 1: sign in as the real test parent account
+      let uid = null;
+      try {
+        const cred = await auth.signInWithEmailAndPassword(TEST_EMAIL, TEST_PASSWORD);
+        uid = cred.user.uid;
+        addResult("Signed in as test parent account", true, "uid: " + uid);
+      } catch (err) {
+        addResult("Could not sign in with the test account", false, err.message);
+        verdictEl.innerHTML = `<div class="verdict fail">Could not run the rest of the test — check the mobile/password are correct and this account is approved.</div>`;
+        return;
+      }
+
+      // Step 2: attempt the actual attack — try to promote self to admin
+      try {
+        await db.collection("users").doc(uid).update({ role: "admin", status: "approved" });
+        addResult("Attempted self-promotion to Admin", false, "⚠️ This SUCCEEDED — meaning a parent CAN become admin. This is a serious problem.");
+      } catch (err) {
+        addResult("Attempted self-promotion to Admin", true, "Correctly blocked: " + err.message);
+      }
+
+      // Step 3: attempt to read another arbitrary user's document
+      try {
+        const snap = await db.collection("users").get();
+        const otherDocs = snap.docs ? snap.docs.length : 0;
+        addResult("Attempted to read the FULL user list", false, `⚠️ This SUCCEEDED and returned ${snap.size} documents — a parent can see everyone's data.`);
+      } catch (err) {
+        addResult("Attempted to read the full user list", true, "Correctly blocked: " + err.message);
+      }
+
+      // Step 4: confirm reading OWN document still works (sanity check — app should still function)
+      try {
+        const ownSnap = await db.collection("users").doc(uid).get();
+        addResult("Reading own profile still works", ownSnap.exists, "Your app needs this to work normally.");
+      } catch (err) {
+        addResult("Reading own profile still works", false, "⚠️ This should have worked — the app itself may be broken: " + err.message);
+      }
+
+      await auth.signOut();
+
+      verdictEl.innerHTML = allPassed
+        ? `<div class="verdict pass">✅ ALL CHECKS PASSED</div><p style="text-align:center;">Your rules correctly blocked every attack attempt.</p>`
+        : `<div class="verdict fail">❌ SOME CHECKS FAILED</div><p style="text-align:center;">Do not use this app for real documents until this is fixed. Send this page's results back for help.</p>`;
+    });
+  </script>
+</body>
+</html>
