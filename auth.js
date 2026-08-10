@@ -51,27 +51,13 @@ tabRegister.addEventListener("click", () => {
   showAuthCard(registerCard);
 });
 pendingBackBtn.addEventListener("click", () => {
+  auth.signOut();
   tabSignIn.click();
 });
 rejectedBackBtn.addEventListener("click", () => {
+  auth.signOut();
   tabSignIn.click();
 });
-
-// ---------- SESSION ----------
-function saveSession(userDoc) {
-  localStorage.setItem(
-    "bps_session",
-    JSON.stringify({ mobile: userDoc.mobile, role: userDoc.role, name: userDoc.name })
-  );
-}
-
-function getSession() {
-  try {
-    return JSON.parse(localStorage.getItem("bps_session"));
-  } catch (e) {
-    return null;
-  }
-}
 
 // ---------- LOGIN ----------
 async function handleLogin() {
@@ -89,41 +75,49 @@ async function handleLogin() {
 
   loginBtn.disabled = true;
   loginStatus.textContent = "Signing in…";
+  suppressAutoRedirect = true;
 
   try {
-    const snap = await db.collection("users").doc(mobile).get();
+    const cred = await auth.signInWithEmailAndPassword(mobileToEmail(mobile), password);
+    const snap = await db.collection("users").doc(cred.user.uid).get();
+
     if (!snap.exists) {
-      loginStatus.textContent = "No account found with that mobile number.";
+      loginStatus.textContent = "Account not found. Please contact the school office.";
+      await auth.signOut();
+      suppressAutoRedirect = false;
       loginBtn.disabled = false;
       return;
     }
     const data = snap.data();
 
-    const ok = await verifyPassword(password, data.passwordSalt, data.passwordHash);
-    if (!ok) {
-      loginStatus.textContent = "Incorrect password. Please try again.";
-      loginBtn.disabled = false;
-      return;
-    }
-
     if (data.status === "pending") {
       showAuthCard(pendingCard);
+      suppressAutoRedirect = false;
       loginBtn.disabled = false;
       loginStatus.textContent = "";
       return;
     }
     if (data.status === "rejected") {
       showAuthCard(rejectedCard);
+      suppressAutoRedirect = false;
       loginBtn.disabled = false;
       loginStatus.textContent = "";
       return;
     }
 
-    saveSession(data);
     window.location.href = "dashboard.html";
   } catch (err) {
     console.error(err);
-    loginStatus.textContent = "Something went wrong. Please try again.";
+    suppressAutoRedirect = false;
+    let msg = "Sign-in failed. Please check your mobile number and password.";
+    if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential" || err.code === "auth/invalid-login-credentials") {
+      msg = "No account found with that mobile number and password.";
+    } else if (err.code === "auth/wrong-password") {
+      msg = "Incorrect password. Please try again.";
+    } else if (err.code === "auth/too-many-requests") {
+      msg = "Too many attempts. Please wait a bit and try again.";
+    }
+    loginStatus.textContent = msg;
     loginBtn.disabled = false;
   }
 }
@@ -155,53 +149,71 @@ async function handleRegister() {
   }
 
   registerBtn.disabled = true;
-  registerStatus.textContent = "Sending request…";
+  registerStatus.textContent = "Creating your account…";
+  suppressAutoRedirect = true;
 
+  let cred = null;
   try {
-    const existing = await db.collection("users").doc(mobile).get();
-    if (existing.exists) {
-      registerStatus.textContent = "An account with this mobile number already exists.";
+    cred = await auth.createUserWithEmailAndPassword(mobileToEmail(mobile), password);
+
+    registerStatus.textContent = "Checking admission number…";
+    const studentMatch = await db.collection("students").where("admissionNumber", "==", admission).get();
+    if (studentMatch.empty) {
+      // Roll back — don't leave an orphaned, unverifiable account behind.
+      await cred.user.delete();
+      await auth.signOut();
+      registerStatus.textContent = "We couldn't find a student with that admission number. Please check with the school office, or check for typos.";
+      suppressAutoRedirect = false;
       registerBtn.disabled = false;
       return;
     }
+    let studentId = null, studentName = "", studentClassName = "";
+    studentMatch.forEach((doc) => {
+      studentId = doc.id;
+      studentName = doc.data().name;
+      studentClassName = doc.data().className;
+    });
 
-    const salt = generateSaltHex();
-    const hash = await hashPassword(password, salt);
-
-    const userDoc = {
-      name,
-      mobile,
-      admissionNumber: admission,
+    await db.collection("users").doc(cred.user.uid).set({
+      name, mobile, admissionNumber: admission,
+      studentId, studentName, studentClassName,
       role: "parent",
       status: "pending",
-      passwordSalt: salt,
-      passwordHash: hash,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    };
-
-    await db.collection("users").doc(mobile).set(userDoc);
+    });
 
     regName.value = "";
     regMobile.value = "";
     regAdmission.value = "";
     regPassword.value = "";
     registerStatus.textContent = "";
+    suppressAutoRedirect = false;
     showAuthCard(pendingCard);
   } catch (err) {
     console.error(err);
-    registerStatus.textContent = "Something went wrong. Please try again.";
+    suppressAutoRedirect = false;
+    let msg = "Something went wrong. Please try again.";
+    if (err.code === "auth/email-already-in-use") {
+      msg = "An account with this mobile number already exists.";
+    } else if (err.code === "auth/weak-password") {
+      msg = "Password must be at least 6 characters.";
+    }
+    registerStatus.textContent = msg;
   }
   registerBtn.disabled = false;
 }
 registerBtn.addEventListener("click", handleRegister);
 
 // ---------- INIT ----------
+let suppressAutoRedirect = false;
+
 (function init() {
-  const session = getSession();
-  if (session) {
-    window.location.href = "dashboard.html";
-    return;
-  }
+  auth.onAuthStateChanged((user) => {
+    if (user && !suppressAutoRedirect) {
+      window.location.href = "dashboard.html";
+      return;
+    }
+  });
   showScreen("splash");
   setTimeout(() => showScreen("auth"), 900);
 })();

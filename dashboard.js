@@ -19,39 +19,31 @@ function showOnly(elOrList) {
   loadingCard.classList.add("hidden");
 }
 
-function getSession() {
-  try {
-    return JSON.parse(localStorage.getItem("bps_session"));
-  } catch (e) {
-    return null;
-  }
-}
-
 signOutBtn.addEventListener("click", () => {
-  localStorage.removeItem("bps_session");
+  auth.signOut();
   window.location.href = "index.html";
 });
 
-async function init() {
-  const session = getSession();
-  if (!session) {
+let currentUid = null;
+
+auth.onAuthStateChanged(async (user) => {
+  if (!user) {
     showOnly(notSignedInCard);
     roleLabel.textContent = "Signed out";
     return;
   }
+  currentUid = user.uid;
 
-  // Re-check current status/role from the database (in case admin changed it)
   try {
-    const snap = await db.collection("users").doc(session.mobile).get();
+    const snap = await db.collection("users").doc(user.uid).get();
     if (!snap.exists) {
-      localStorage.removeItem("bps_session");
       showOnly(notSignedInCard);
       return;
     }
     const data = snap.data();
 
     if (data.status === "pending" || data.status === "rejected") {
-      localStorage.removeItem("bps_session");
+      auth.signOut();
       showOnly(notSignedInCard);
       return;
     }
@@ -69,15 +61,14 @@ async function init() {
     } else {
       roleLabel.textContent = "Parent — " + data.name;
       showOnly([parentCard, documentsCard]);
-      currentParentMobile = data.mobile;
+      currentUserId = user.uid; // kept as-is for the doc/folder key used below
       renderDocuments(data.documents || {});
     }
   } catch (err) {
     console.error(err);
     showOnly(notSignedInCard);
   }
-}
-init();
+});
 
 // ---------- PENDING REQUESTS (admin) ----------
 const pendingRequestsList = document.getElementById("pendingRequestsList");
@@ -100,18 +91,18 @@ async function loadPendingRequests() {
         <div class="request-detail">Mobile: ${d.mobile}</div>
         <div class="request-detail">Admission No: ${d.admissionNumber}${d.studentName ? " — matched: " + d.studentName + (d.studentClassName ? " (" + d.studentClassName + ")" : "") : " — ⚠️ no matching student found"}</div>
         <div class="request-actions">
-          <button class="btn-approve" data-mobile="${d.mobile}">Approve</button>
-          <button class="btn-reject" data-mobile="${d.mobile}">Reject</button>
+          <button class="btn-approve" data-uid="${doc.id}">Approve</button>
+          <button class="btn-reject" data-uid="${doc.id}">Reject</button>
         </div>
       `;
       pendingRequestsList.appendChild(row);
     });
 
     pendingRequestsList.querySelectorAll(".btn-approve").forEach((btn) => {
-      btn.addEventListener("click", () => setRequestStatus(btn.dataset.mobile, "approved"));
+      btn.addEventListener("click", () => setRequestStatus(btn.dataset.uid, "approved"));
     });
     pendingRequestsList.querySelectorAll(".btn-reject").forEach((btn) => {
-      btn.addEventListener("click", () => setRequestStatus(btn.dataset.mobile, "rejected"));
+      btn.addEventListener("click", () => setRequestStatus(btn.dataset.uid, "rejected"));
     });
   } catch (err) {
     console.error(err);
@@ -119,9 +110,9 @@ async function loadPendingRequests() {
   }
 }
 
-async function setRequestStatus(mobile, status) {
+async function setRequestStatus(uid, status) {
   try {
-    await db.collection("users").doc(mobile).update({ status });
+    await db.collection("users").doc(uid).update({ status });
     loadPendingRequests();
     loadMemberList();
   } catch (err) {
@@ -169,26 +160,26 @@ addMemberBtn.addEventListener("click", async () => {
   addMemberStatus.textContent = "Creating login…";
 
   try {
-    const existing = await db.collection("users").doc(mobile).get();
-    if (existing.exists) {
-      addMemberStatus.textContent = "An account with this mobile number already exists.";
-      addMemberBtn.disabled = false;
-      return;
-    }
-
     const tempPassword = generateTempPassword();
-    const salt = generateSaltHex();
-    const hash = await hashPassword(tempPassword, salt);
 
-    await db.collection("users").doc(mobile).set({
+    // A secondary app instance means creating this new login doesn't
+    // sign the admin out of their own session.
+    const secondaryApp = firebase.apps.find((a) => a.name === "Secondary")
+      || firebase.initializeApp(firebaseConfig, "Secondary");
+    const secondaryAuth = secondaryApp.auth();
+
+    const cred = await secondaryAuth.createUserWithEmailAndPassword(mobileToEmail(mobile), tempPassword);
+    const newUid = cred.user.uid;
+
+    await db.collection("users").doc(newUid).set({
       name,
       mobile,
       role: "teacher",
       status: "approved",
-      passwordSalt: salt,
-      passwordHash: hash,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
+
+    await secondaryAuth.signOut();
 
     resultMobile.textContent = mobile;
     resultPassword.textContent = tempPassword;
@@ -199,7 +190,11 @@ addMemberBtn.addEventListener("click", async () => {
     loadMemberList();
   } catch (err) {
     console.error(err);
-    addMemberStatus.textContent = "Couldn't create login. Please try again.";
+    let msg = "Couldn't create login. Please try again.";
+    if (err.code === "auth/email-already-in-use") {
+      msg = "An account with this mobile number already exists.";
+    }
+    addMemberStatus.textContent = msg;
   }
   addMemberBtn.disabled = false;
 });
@@ -222,7 +217,7 @@ async function loadMemberList() {
     const approved = [];
     snap.forEach((doc) => {
       const d = doc.data();
-      if (d.status === "approved") approved.push(d);
+      if (d.status === "approved") approved.push({ ...d, uid: doc.id });
     });
     if (approved.length === 0) {
       memberList.innerHTML = "<p class=\"card-copy\">No members yet.</p>";
@@ -236,29 +231,29 @@ async function loadMemberList() {
       const canRemove = d.role !== "admin"; // safety: never let admin remove themselves from this list
       const docCount = countDocuments(d.documents || {});
       const docsBtn = d.role === "parent"
-        ? `<button class="btn-view-docs" data-mobile="${d.mobile}">Documents (${docCount})</button>`
+        ? `<button class="btn-view-docs" data-uid="${d.uid}">Documents (${docCount})</button>`
         : "";
       row.innerHTML = `
         <div class="member-row-top">
           <span class="member-name">${d.name} <span class="member-role">${roleText}</span></span>
-          ${canRemove ? `<button class="btn-remove" data-mobile="${d.mobile}" data-name="${d.name}">Remove</button>` : ""}
+          ${canRemove ? `<button class="btn-remove" data-uid="${d.uid}" data-name="${d.name}">Remove</button>` : ""}
         </div>
         ${docsBtn}
-        <div class="admin-doc-view hidden" id="docview-${d.mobile}"></div>
+        <div class="admin-doc-view hidden" id="docview-${d.uid}"></div>
       `;
       memberList.appendChild(row);
     });
 
     memberList.querySelectorAll(".btn-view-docs").forEach((btn) => {
-      btn.addEventListener("click", () => toggleAdminDocView(btn.dataset.mobile));
+      btn.addEventListener("click", () => toggleAdminDocView(btn.dataset.uid));
     });
 
     memberList.querySelectorAll(".btn-remove").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const mobile = btn.dataset.mobile;
+        const uid = btn.dataset.uid;
         const name = btn.dataset.name;
         if (confirm(`Remove ${name}'s access? They will need to register again to regain access.`)) {
-          removeMember(mobile);
+          removeMember(uid);
         }
       });
     });
@@ -302,8 +297,8 @@ function renderDocumentsHTML(docs) {
   return html || `<p class="card-copy">No documents uploaded yet.</p>`;
 }
 
-async function toggleAdminDocView(mobile) {
-  const panel = document.getElementById(`docview-${mobile}`);
+async function toggleAdminDocView(uid) {
+  const panel = document.getElementById(`docview-${uid}`);
   if (!panel) return;
 
   if (!panel.classList.contains("hidden")) {
@@ -315,7 +310,7 @@ async function toggleAdminDocView(mobile) {
   panel.innerHTML = `<p class="card-copy">Loading documents…</p>`;
 
   try {
-    const snap = await db.collection("users").doc(mobile).get();
+    const snap = await db.collection("users").doc(uid).get();
     const docs = snap.data().documents || {};
     panel.innerHTML = renderDocumentsHTML(docs);
   } catch (err) {
@@ -323,9 +318,9 @@ async function toggleAdminDocView(mobile) {
   }
 }
 
-async function removeMember(mobile) {
+async function removeMember(uid) {
   try {
-    await db.collection("users").doc(mobile).delete();
+    await db.collection("users").doc(uid).delete();
     loadMemberList();
   } catch (err) {
     console.error(err);
@@ -334,7 +329,7 @@ async function removeMember(mobile) {
 }
 
 // ---------- PARENT DOCUMENTS ----------
-let currentParentMobile = null;
+let currentUserId = null;
 
 const DOCUMENT_TYPES = [
   { key: "birthCertificate", label: "Birth Certificate" },
@@ -424,12 +419,12 @@ function renderOtherDocuments(otherDocs) {
 
 async function removeOtherDocument(index) {
   try {
-    const snap = await db.collection("users").doc(currentParentMobile).get();
+    const snap = await db.collection("users").doc(currentUserId).get();
     const existing = snap.data().documents || {};
     const list = existing.otherDocuments || [];
     list.splice(index, 1);
     existing.otherDocuments = list;
-    await db.collection("users").doc(currentParentMobile).update({ documents: existing });
+    await db.collection("users").doc(currentUserId).update({ documents: existing });
     renderOtherDocuments(list);
   } catch (err) {
     console.error(err);
@@ -441,7 +436,7 @@ async function uploadFileToCloudinary(file, subfolder) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-  formData.append("folder", `bps-school/${currentParentMobile}${subfolder ? "/" + subfolder : ""}`);
+  formData.append("folder", `bps-school/${currentUserId}${subfolder ? "/" + subfolder : ""}`);
 
   const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
   const res = await fetch(uploadUrl, { method: "POST", body: formData });
@@ -476,14 +471,14 @@ async function handleDocUpload(docKey, btn) {
   try {
     const url = await uploadFileToCloudinary(file);
 
-    const snap = await db.collection("users").doc(currentParentMobile).get();
+    const snap = await db.collection("users").doc(currentUserId).get();
     const existing = snap.data().documents || {};
     existing[docKey] = {
       url,
       fileName: file.name,
       uploadedAt: Date.now(),
     };
-    await db.collection("users").doc(currentParentMobile).update({ documents: existing });
+    await db.collection("users").doc(currentUserId).update({ documents: existing });
 
     documentsStatus.textContent = "Uploaded successfully.";
     renderDocuments(existing);
@@ -515,12 +510,12 @@ if (addOtherDocBtn) {
     try {
       const url = await uploadFileToCloudinary(file, "other");
 
-      const snap = await db.collection("users").doc(currentParentMobile).get();
+      const snap = await db.collection("users").doc(currentUserId).get();
       const existing = snap.data().documents || {};
       const list = existing.otherDocuments || [];
       list.push({ label, url, fileName: file.name, uploadedAt: Date.now() });
       existing.otherDocuments = list;
-      await db.collection("users").doc(currentParentMobile).update({ documents: existing });
+      await db.collection("users").doc(currentUserId).update({ documents: existing });
 
       documentsStatus.textContent = "Document added.";
       otherDocLabel.value = "";
@@ -702,7 +697,7 @@ function renderStudents(students) {
   studentsList.innerHTML = "";
   students.forEach((s) => {
     const row = document.createElement("div");
-    row.className = "member-row";
+    row.className = "student-row";
     row.innerHTML = `
       <div class="member-row-top">
         <span class="member-name">${s.name} <span class="member-role">${s.className || "No class"}</span></span>
