@@ -6,12 +6,14 @@ const addMemberCard = document.getElementById("addMemberCard");
 const manageClassesCard = document.getElementById("manageClassesCard");
 const manageStudentsCard = document.getElementById("manageStudentsCard");
 const teacherCard = document.getElementById("teacherCard");
+const attendanceCard = document.getElementById("attendanceCard");
 const parentCard = document.getElementById("parentCard");
 const documentsCard = document.getElementById("documentsCard");
+const parentAttendanceCard = document.getElementById("parentAttendanceCard");
 const roleLabel = document.getElementById("roleLabel");
 const signOutBtn = document.getElementById("signOutBtn");
 
-const ALL_CARDS = [notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard, teacherCard, parentCard, documentsCard];
+const ALL_CARDS = [notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard, teacherCard, attendanceCard, parentCard, documentsCard, parentAttendanceCard];
 
 function showOnly(elOrList) {
   const toShow = Array.isArray(elOrList) ? elOrList : [elOrList];
@@ -52,17 +54,23 @@ auth.onAuthStateChanged(async (user) => {
       roleLabel.textContent = "Admin — " + data.name;
       showOnly([adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard]);
       loadPendingRequests();
+      await loadClasses(); // must finish first — loadMemberList's teacher-class dropdown depends on this cache
       loadMemberList();
-      loadClasses();
       loadStudents();
     } else if (data.role === "teacher") {
       roleLabel.textContent = "Teacher — " + data.name;
-      showOnly(teacherCard);
+      showOnly([teacherCard, attendanceCard]);
+      currentTeacherClassId = data.classId || null;
+      currentTeacherClassName = data.className || "";
+      const label = document.getElementById("teacherClassLabel");
+      if (label) label.textContent = currentTeacherClassId ? `Your class: ${currentTeacherClassName}` : "No class assigned yet — contact the school office.";
+      loadAttendanceForToday();
     } else {
       roleLabel.textContent = "Parent — " + data.name;
-      showOnly([parentCard, documentsCard]);
-      currentUserId = user.uid; // kept as-is for the doc/folder key used below
+      showOnly([parentCard, documentsCard, parentAttendanceCard]);
+      currentUserId = user.uid;
       renderDocuments(data.documents || {});
+      loadParentAttendance(data.studentId, data.studentClassName, data.studentName);
     }
   } catch (err) {
     console.error(err);
@@ -124,6 +132,7 @@ async function setRequestStatus(uid, status) {
 // ---------- ADD TEACHER (admin only) ----------
 const newMemberName = document.getElementById("newMemberName");
 const newMemberMobile = document.getElementById("newMemberMobile");
+const newMemberClass = document.getElementById("newMemberClass");
 const addMemberBtn = document.getElementById("addMemberBtn");
 const addMemberStatus = document.getElementById("addMemberStatus");
 const newMemberResult = document.getElementById("newMemberResult");
@@ -146,6 +155,7 @@ function normalizeMobile(raw) {
 addMemberBtn.addEventListener("click", async () => {
   const name = newMemberName.value.trim();
   const mobile = normalizeMobile(newMemberMobile.value);
+  const classId = newMemberClass.value;
 
   if (!name) {
     addMemberStatus.textContent = "Please enter a name.";
@@ -155,12 +165,17 @@ addMemberBtn.addEventListener("click", async () => {
     addMemberStatus.textContent = "Please enter a valid 10-digit mobile number.";
     return;
   }
+  if (!classId) {
+    addMemberStatus.textContent = "Please add a class first (in Manage Classes below), then select it.";
+    return;
+  }
 
   addMemberBtn.disabled = true;
   addMemberStatus.textContent = "Creating login…";
 
   try {
     const tempPassword = generateTempPassword();
+    const className = (cachedClasses.find((c) => c.id === classId) || {}).name || "";
 
     // A secondary app instance means creating this new login doesn't
     // sign the admin out of their own session.
@@ -176,6 +191,8 @@ addMemberBtn.addEventListener("click", async () => {
       mobile,
       role: "teacher",
       status: "approved",
+      classId,
+      className,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -233,15 +250,30 @@ async function loadMemberList() {
       const docsBtn = d.role === "parent"
         ? `<button class="btn-view-docs" data-uid="${d.uid}">Documents (${docCount})</button>`
         : "";
+      const classSwapControl = d.role === "teacher"
+        ? `<div class="class-swap-row">
+             <span class="request-detail">Current class: ${d.className || "none assigned"}</span>
+             <select class="text-input class-swap-select" data-uid="${d.uid}" style="margin-top:0.3rem;">
+               ${cachedClasses.map((c) => `<option value="${c.id}" ${c.id === d.classId ? "selected" : ""}>${c.name}</option>`).join("")}
+             </select>
+             <button class="btn-secondary class-swap-btn" data-uid="${d.uid}" style="margin-top:0.4rem;">Change class</button>
+             <p class="status-note class-swap-status" data-uid="${d.uid}"></p>
+           </div>`
+        : "";
       row.innerHTML = `
         <div class="member-row-top">
           <span class="member-name">${d.name} <span class="member-role">${roleText}</span></span>
           ${canRemove ? `<button class="btn-remove" data-uid="${d.uid}" data-name="${d.name}">Remove</button>` : ""}
         </div>
         ${docsBtn}
+        ${classSwapControl}
         <div class="admin-doc-view hidden" id="docview-${d.uid}"></div>
       `;
       memberList.appendChild(row);
+    });
+
+    memberList.querySelectorAll(".class-swap-btn").forEach((btn) => {
+      btn.addEventListener("click", () => reassignTeacherClass(btn.dataset.uid));
     });
 
     memberList.querySelectorAll(".btn-view-docs").forEach((btn) => {
@@ -315,6 +347,32 @@ async function toggleAdminDocView(uid) {
     panel.innerHTML = renderDocumentsHTML(docs);
   } catch (err) {
     panel.innerHTML = `<p class="card-copy">Couldn't load documents.</p>`;
+  }
+}
+
+async function reassignTeacherClass(uid) {
+  const select = document.querySelector(`.class-swap-select[data-uid="${uid}"]`);
+  const status = document.querySelector(`.class-swap-status[data-uid="${uid}"]`);
+  if (!select) return;
+
+  const newClassId = select.value;
+  const newClass = cachedClasses.find((c) => c.id === newClassId);
+  if (!newClass) {
+    if (status) status.textContent = "Please add a class first.";
+    return;
+  }
+
+  if (status) status.textContent = "Updating…";
+  try {
+    await db.collection("users").doc(uid).update({
+      classId: newClassId,
+      className: newClass.name,
+    });
+    if (status) status.textContent = `Now assigned to ${newClass.name}.`;
+    loadMemberList();
+  } catch (err) {
+    console.error(err);
+    if (status) status.textContent = "Couldn't update. Please try again.";
   }
 }
 
@@ -603,11 +661,16 @@ async function loadClasses() {
       });
     }
 
-    // Refresh the dropdown used when adding a student
+    // Refresh the dropdowns used when adding a student or a teacher
     if (newStudentClass) {
       newStudentClass.innerHTML = cachedClasses.length
         ? cachedClasses.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
         : `<option value="">No classes yet — add one above first</option>`;
+    }
+    if (newMemberClass) {
+      newMemberClass.innerHTML = cachedClasses.length
+        ? cachedClasses.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
+        : `<option value="">No classes yet — add one first</option>`;
     }
   } catch (err) {
     classesList.innerHTML = "<p class=\"card-copy\">Couldn't load classes.</p>";
@@ -785,4 +848,175 @@ if (studentSearchInput) {
     );
     renderStudents(filtered);
   });
+}
+
+// ---------- ATTENDANCE (Teacher marks, Parent views) ----------
+let currentTeacherClassId = null;
+let currentTeacherClassName = "";
+let attendanceStudentsCache = [];
+
+const attendanceDate = document.getElementById("attendanceDate");
+const attendanceStudentList = document.getElementById("attendanceStudentList");
+const saveAttendanceBtn = document.getElementById("saveAttendanceBtn");
+const attendanceStatus = document.getElementById("attendanceStatus");
+
+function todayDateString() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+if (attendanceDate) {
+  attendanceDate.value = todayDateString();
+  attendanceDate.addEventListener("change", () => loadAttendanceForDate(attendanceDate.value));
+}
+
+async function loadAttendanceForToday() {
+  if (!currentTeacherClassId) {
+    attendanceStudentList.innerHTML = `<p class="card-copy">No class assigned yet — contact the school office.</p>`;
+    return;
+  }
+  await loadAttendanceForDate(attendanceDate.value || todayDateString());
+}
+
+async function loadAttendanceForDate(dateStr) {
+  if (!currentTeacherClassId) return;
+  attendanceStudentList.innerHTML = `<p class="card-copy">Loading students…</p>`;
+
+  try {
+    const snap = await db.collection("students").where("classId", "==", currentTeacherClassId).get();
+    attendanceStudentsCache = [];
+    snap.forEach((doc) => attendanceStudentsCache.push({ id: doc.id, ...doc.data() }));
+    attendanceStudentsCache.sort((a, b) => a.name.localeCompare(b.name));
+
+    if (attendanceStudentsCache.length === 0) {
+      attendanceStudentList.innerHTML = `<p class="card-copy">No students in your class yet.</p>`;
+      return;
+    }
+
+    // Load any existing attendance already saved for this date, so it's editable
+    const attendanceId = `${currentTeacherClassId}_${dateStr}`;
+    const existingSnap = await db.collection("attendance").doc(attendanceId).get();
+    const existingRecords = existingSnap.exists ? (existingSnap.data().records || {}) : {};
+
+    attendanceStudentList.innerHTML = "";
+    attendanceStudentsCache.forEach((s) => {
+      const current = existingRecords[s.id] || "present";
+      const row = document.createElement("div");
+      row.className = "attendance-row";
+      row.innerHTML = `
+        <span class="member-name">${s.name}</span>
+        <div class="attendance-toggle" data-student-id="${s.id}">
+          <button type="button" class="att-btn ${current === "present" ? "active-present" : ""}" data-value="present">Present</button>
+          <button type="button" class="att-btn ${current === "absent" ? "active-absent" : ""}" data-value="absent">Absent</button>
+        </div>
+      `;
+      attendanceStudentList.appendChild(row);
+    });
+
+    attendanceStudentList.querySelectorAll(".attendance-toggle").forEach((toggle) => {
+      const buttons = toggle.querySelectorAll(".att-btn");
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          buttons.forEach((b) => b.classList.remove("active-present", "active-absent"));
+          btn.classList.add(btn.dataset.value === "present" ? "active-present" : "active-absent");
+        });
+      });
+    });
+  } catch (err) {
+    console.error(err);
+    attendanceStudentList.innerHTML = `<p class="card-copy">Couldn't load students.</p>`;
+  }
+}
+
+if (saveAttendanceBtn) {
+  saveAttendanceBtn.addEventListener("click", async () => {
+    const dateStr = attendanceDate.value;
+    if (!dateStr) {
+      attendanceStatus.textContent = "Please choose a date.";
+      return;
+    }
+    if (!currentTeacherClassId) {
+      attendanceStatus.textContent = "No class assigned.";
+      return;
+    }
+
+    const records = {};
+    attendanceStudentList.querySelectorAll(".attendance-toggle").forEach((toggle) => {
+      const studentId = toggle.dataset.studentId;
+      const activeBtn = toggle.querySelector(".active-present, .active-absent");
+      records[studentId] = activeBtn ? activeBtn.dataset.value : "present";
+    });
+
+    saveAttendanceBtn.disabled = true;
+    attendanceStatus.textContent = "Saving…";
+
+    try {
+      const attendanceId = `${currentTeacherClassId}_${dateStr}`;
+      await db.collection("attendance").doc(attendanceId).set({
+        classId: currentTeacherClassId,
+        className: currentTeacherClassName,
+        date: dateStr,
+        records,
+        markedBy: currentUid,
+        markedAt: Date.now(),
+      });
+      attendanceStatus.textContent = "Attendance saved.";
+    } catch (err) {
+      console.error(err);
+      attendanceStatus.textContent = "Couldn't save attendance. Please try again.";
+    }
+    saveAttendanceBtn.disabled = false;
+  });
+}
+
+// ---------- PARENT: view attendance ----------
+async function loadParentAttendance(studentId, studentClassName, studentName) {
+  const list = document.getElementById("parentAttendanceList");
+  const title = document.getElementById("parentAttendanceTitle");
+  if (!list) return;
+
+  if (!studentId) {
+    list.innerHTML = `<p class="card-copy">No linked student record found.</p>`;
+    return;
+  }
+  if (title) title.textContent = studentName ? `${studentName}'s attendance` : "Attendance";
+  list.innerHTML = `<p class="card-copy">Loading…</p>`;
+
+  try {
+    // We don't know the classId directly here in older records, so look
+    // it up fresh from the student record to be safe.
+    const studentSnap = await db.collection("students").doc(studentId).get();
+    if (!studentSnap.exists) {
+      list.innerHTML = `<p class="card-copy">Student record not found.</p>`;
+      return;
+    }
+    const classId = studentSnap.data().classId;
+
+    const snap = await db.collection("attendance").where("classId", "==", classId).get();
+    const entries = [];
+    snap.forEach((doc) => {
+      const d = doc.data();
+      if (d.records && d.records[studentId]) {
+        entries.push({ date: d.date, status: d.records[studentId] });
+      }
+    });
+    entries.sort((a, b) => (a.date < b.date ? 1 : -1)); // most recent first
+
+    if (entries.length === 0) {
+      list.innerHTML = `<p class="card-copy">No attendance records yet.</p>`;
+      return;
+    }
+
+    list.innerHTML = "";
+    entries.forEach((e) => {
+      const row = document.createElement("div");
+      row.className = "admin-doc-row";
+      const statusClass = e.status === "present" ? "att-present-label" : "att-absent-label";
+      row.innerHTML = `<span>${e.date}</span><span class="${statusClass}">${e.status === "present" ? "Present" : "Absent"}</span>`;
+      list.appendChild(row);
+    });
+  } catch (err) {
+    console.error(err);
+    list.innerHTML = `<p class="card-copy">Couldn't load attendance.</p>`;
+  }
 }
