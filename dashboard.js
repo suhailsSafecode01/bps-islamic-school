@@ -5,15 +5,30 @@ const pendingRequestsCard = document.getElementById("pendingRequestsCard");
 const addMemberCard = document.getElementById("addMemberCard");
 const manageClassesCard = document.getElementById("manageClassesCard");
 const manageStudentsCard = document.getElementById("manageStudentsCard");
+const sendNoticeCard = document.getElementById("sendNoticeCard");
+const allResultsCard = document.getElementById("allResultsCard");
+const setTimetableCard = document.getElementById("setTimetableCard");
 const teacherCard = document.getElementById("teacherCard");
 const attendanceCard = document.getElementById("attendanceCard");
+const teacherPostsCard = document.getElementById("teacherPostsCard");
+const teacherResultsCard = document.getElementById("teacherResultsCard");
+const teacherTimetableCard = document.getElementById("teacherTimetableCard");
 const parentCard = document.getElementById("parentCard");
 const documentsCard = document.getElementById("documentsCard");
 const parentAttendanceCard = document.getElementById("parentAttendanceCard");
+const parentNoticesCard = document.getElementById("parentNoticesCard");
+const parentPostsCard = document.getElementById("parentPostsCard");
+const parentResultsCard = document.getElementById("parentResultsCard");
+const parentTimetableCard = document.getElementById("parentTimetableCard");
 const roleLabel = document.getElementById("roleLabel");
 const signOutBtn = document.getElementById("signOutBtn");
 
-const ALL_CARDS = [notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard, teacherCard, attendanceCard, parentCard, documentsCard, parentAttendanceCard];
+const ALL_CARDS = [
+  notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard,
+  sendNoticeCard, allResultsCard, setTimetableCard,
+  teacherCard, attendanceCard, teacherPostsCard, teacherResultsCard, teacherTimetableCard,
+  parentCard, documentsCard, parentAttendanceCard, parentNoticesCard, parentPostsCard, parentResultsCard, parentTimetableCard,
+];
 
 function showOnly(elOrList) {
   const toShow = Array.isArray(elOrList) ? elOrList : [elOrList];
@@ -52,25 +67,38 @@ auth.onAuthStateChanged(async (user) => {
 
     if (data.role === "admin") {
       roleLabel.textContent = "Admin — " + data.name;
-      showOnly([adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard]);
+      showOnly([adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard, sendNoticeCard, allResultsCard, setTimetableCard]);
       loadPendingRequests();
-      await loadClasses(); // must finish first — loadMemberList's teacher-class dropdown depends on this cache
+      await loadClasses(); // must finish first — dependent dropdowns need this cache
       loadMemberList();
       loadStudents();
+      populateNoticeTargetDropdown();
+      populateTimetableClassDropdown();
+      loadAdminNotices();
+      loadAllResults();
     } else if (data.role === "teacher") {
       roleLabel.textContent = "Teacher — " + data.name;
-      showOnly([teacherCard, attendanceCard]);
+      showOnly([teacherCard, attendanceCard, teacherPostsCard, teacherResultsCard, teacherTimetableCard]);
       currentTeacherClassId = data.classId || null;
       currentTeacherClassName = data.className || "";
       const label = document.getElementById("teacherClassLabel");
       if (label) label.textContent = currentTeacherClassId ? `Your class: ${currentTeacherClassName}` : "No class assigned yet — contact the school office.";
       loadAttendanceForToday();
+      loadTeacherClassStudents();
+      loadTeacherPosts();
+      loadTeacherResults();
+      loadTeacherTimetable();
     } else {
       roleLabel.textContent = "Parent — " + data.name;
-      showOnly([parentCard, documentsCard, parentAttendanceCard]);
+      showOnly([parentCard, documentsCard, parentAttendanceCard, parentNoticesCard, parentPostsCard, parentResultsCard, parentTimetableCard]);
       currentUserId = user.uid;
       renderDocuments(data.documents || {});
       loadParentAttendance(data.studentId, data.studentClassName, data.studentName);
+      const parentClassId = await resolveStudentClassId(data.studentId);
+      loadParentNotices(parentClassId);
+      loadParentPosts(parentClassId);
+      loadParentResults(data.studentId);
+      loadParentTimetable(parentClassId);
     }
   } catch (err) {
     console.error(err);
@@ -177,8 +205,6 @@ addMemberBtn.addEventListener("click", async () => {
     const tempPassword = generateTempPassword();
     const className = (cachedClasses.find((c) => c.id === classId) || {}).name || "";
 
-    // A secondary app instance means creating this new login doesn't
-    // sign the admin out of their own session.
     const secondaryApp = firebase.apps.find((a) => a.name === "Secondary")
       || firebase.initializeApp(firebaseConfig, "Secondary");
     const secondaryAuth = secondaryApp.auth();
@@ -245,7 +271,7 @@ async function loadMemberList() {
       const row = document.createElement("div");
       row.className = "member-row";
       const roleText = d.role === "teacher" ? "Teacher" : d.role === "admin" ? "Admin" : "Parent";
-      const canRemove = d.role !== "admin"; // safety: never let admin remove themselves from this list
+      const canRemove = d.role !== "admin";
       const docCount = countDocuments(d.documents || {});
       const docsBtn = d.role === "parent"
         ? `<button class="btn-view-docs" data-uid="${d.uid}">Documents (${docCount})</button>`
@@ -291,6 +317,32 @@ async function loadMemberList() {
     });
   } catch (err) {
     memberList.innerHTML = "<p class=\"card-copy\">Couldn't load member list.</p>";
+  }
+}
+
+async function reassignTeacherClass(uid) {
+  const select = document.querySelector(`.class-swap-select[data-uid="${uid}"]`);
+  const status = document.querySelector(`.class-swap-status[data-uid="${uid}"]`);
+  if (!select) return;
+
+  const newClassId = select.value;
+  const newClass = cachedClasses.find((c) => c.id === newClassId);
+  if (!newClass) {
+    if (status) status.textContent = "Please add a class first.";
+    return;
+  }
+
+  if (status) status.textContent = "Updating…";
+  try {
+    await db.collection("users").doc(uid).update({
+      classId: newClassId,
+      className: newClass.name,
+    });
+    if (status) status.textContent = `Now assigned to ${newClass.name}.`;
+    loadMemberList();
+  } catch (err) {
+    console.error(err);
+    if (status) status.textContent = "Couldn't update. Please try again.";
   }
 }
 
@@ -350,32 +402,6 @@ async function toggleAdminDocView(uid) {
   }
 }
 
-async function reassignTeacherClass(uid) {
-  const select = document.querySelector(`.class-swap-select[data-uid="${uid}"]`);
-  const status = document.querySelector(`.class-swap-status[data-uid="${uid}"]`);
-  if (!select) return;
-
-  const newClassId = select.value;
-  const newClass = cachedClasses.find((c) => c.id === newClassId);
-  if (!newClass) {
-    if (status) status.textContent = "Please add a class first.";
-    return;
-  }
-
-  if (status) status.textContent = "Updating…";
-  try {
-    await db.collection("users").doc(uid).update({
-      classId: newClassId,
-      className: newClass.name,
-    });
-    if (status) status.textContent = `Now assigned to ${newClass.name}.`;
-    loadMemberList();
-  } catch (err) {
-    console.error(err);
-    if (status) status.textContent = "Couldn't update. Please try again.";
-  }
-}
-
 async function removeMember(uid) {
   try {
     await db.collection("users").doc(uid).delete();
@@ -397,7 +423,7 @@ const DOCUMENT_TYPES = [
   { key: "photo", label: "Passport-size Photo" },
 ];
 
-const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8MB
+const MAX_FILE_SIZE = 8 * 1024 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
 const documentsList = document.getElementById("documentsList");
@@ -415,15 +441,12 @@ function renderDocuments(existingDocs) {
     const info = existingDocs[docType.key];
     const row = document.createElement("div");
     row.className = "doc-row";
-
     const statusText = info
       ? `<span class="doc-status uploaded">Uploaded ✓</span>`
       : `<span class="doc-status">Not uploaded</span>`;
-
     const viewLink = info
       ? `<a href="${info.url}" target="_blank" rel="noopener" class="doc-view-link">View</a>`
       : "";
-
     row.innerHTML = `
       <div class="doc-row-header">
         <span class="doc-label">${docType.label}</span>
@@ -498,9 +521,7 @@ async function uploadFileToCloudinary(file, subfolder) {
 
   const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
   const res = await fetch(uploadUrl, { method: "POST", body: formData });
-  if (!res.ok) {
-    throw new Error(`Upload failed (${res.status})`);
-  }
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
   const result = await res.json();
   return result.secure_url;
 }
@@ -516,28 +537,18 @@ function validateFile(file) {
 async function handleDocUpload(docKey, btn) {
   const fileInput = document.getElementById(`file-${docKey}`);
   const file = fileInput.files[0];
-
   const error = validateFile(file);
-  if (error) {
-    documentsStatus.textContent = error;
-    return;
-  }
+  if (error) { documentsStatus.textContent = error; return; }
 
   btn.disabled = true;
   documentsStatus.textContent = "Uploading…";
 
   try {
     const url = await uploadFileToCloudinary(file);
-
     const snap = await db.collection("users").doc(currentUserId).get();
     const existing = snap.data().documents || {};
-    existing[docKey] = {
-      url,
-      fileName: file.name,
-      uploadedAt: Date.now(),
-    };
+    existing[docKey] = { url, fileName: file.name, uploadedAt: Date.now() };
     await db.collection("users").doc(currentUserId).update({ documents: existing });
-
     documentsStatus.textContent = "Uploaded successfully.";
     renderDocuments(existing);
   } catch (err) {
@@ -551,30 +562,20 @@ if (addOtherDocBtn) {
   addOtherDocBtn.addEventListener("click", async () => {
     const label = otherDocLabel.value.trim();
     const file = otherDocFile.files[0];
-
-    if (!label) {
-      documentsStatus.textContent = "Please give this document a name.";
-      return;
-    }
+    if (!label) { documentsStatus.textContent = "Please give this document a name."; return; }
     const error = validateFile(file);
-    if (error) {
-      documentsStatus.textContent = error;
-      return;
-    }
+    if (error) { documentsStatus.textContent = error; return; }
 
     addOtherDocBtn.disabled = true;
     documentsStatus.textContent = "Uploading…";
-
     try {
       const url = await uploadFileToCloudinary(file, "other");
-
       const snap = await db.collection("users").doc(currentUserId).get();
       const existing = snap.data().documents || {};
       const list = existing.otherDocuments || [];
       list.push({ label, url, fileName: file.name, uploadedAt: Date.now() });
       existing.otherDocuments = list;
       await db.collection("users").doc(currentUserId).update({ documents: existing });
-
       documentsStatus.textContent = "Document added.";
       otherDocLabel.value = "";
       otherDocFile.value = "";
@@ -602,19 +603,12 @@ function slugify(name) {
 
 addClassBtn.addEventListener("click", async () => {
   const name = newClassName.value.trim();
-  if (!name) {
-    classStatus.textContent = "Please enter a class name.";
-    return;
-  }
+  if (!name) { classStatus.textContent = "Please enter a class name."; return; }
   const classId = slugify(name);
-  if (!classId) {
-    classStatus.textContent = "Please enter a valid class name.";
-    return;
-  }
+  if (!classId) { classStatus.textContent = "Please enter a valid class name."; return; }
 
   addClassBtn.disabled = true;
   classStatus.textContent = "Adding…";
-
   try {
     const existing = await db.collection("classes").doc(classId).get();
     if (existing.exists) {
@@ -661,7 +655,6 @@ async function loadClasses() {
       });
     }
 
-    // Refresh the dropdowns used when adding a student or a teacher
     if (newStudentClass) {
       newStudentClass.innerHTML = cachedClasses.length
         ? cachedClasses.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
@@ -710,7 +703,6 @@ addStudentBtn.addEventListener("click", async () => {
 
   addStudentBtn.disabled = true;
   studentStatus.textContent = "Adding…";
-
   try {
     const existing = await db.collection("students").where("admissionNumber", "==", admissionNumber).get();
     if (!existing.empty) {
@@ -718,14 +710,12 @@ addStudentBtn.addEventListener("click", async () => {
       addStudentBtn.disabled = false;
       return;
     }
-
     const className = (cachedClasses.find((c) => c.id === classId) || {}).name || "";
     await db.collection("students").add({
       name, admissionNumber, classId, className,
       parentMobile: parentMobile || null,
       createdAt: Date.now(),
     });
-
     newStudentName.value = "";
     newStudentAdmission.value = "";
     newStudentParentMobile.value = "";
@@ -787,36 +777,19 @@ function renderStudents(students) {
 async function toggleStudentDocView(studentId, admissionNumber) {
   const panel = document.getElementById(`studentdocview-${studentId}`);
   if (!panel) return;
-
-  if (!panel.classList.contains("hidden")) {
-    panel.classList.add("hidden");
-    return;
-  }
-
+  if (!panel.classList.contains("hidden")) { panel.classList.add("hidden"); return; }
   panel.classList.remove("hidden");
   panel.innerHTML = `<p class="card-copy">Loading…</p>`;
-
   try {
-    // Find the parent account linked to this student (by studentId first,
-    // falling back to matching admission number for older records).
     let parentSnap = await db.collection("users").where("studentId", "==", studentId).get();
     let parentDoc = null;
     parentSnap.forEach((doc) => { parentDoc = doc.data(); });
-
     if (!parentDoc) {
       const fallback = await db.collection("users").where("admissionNumber", "==", admissionNumber).get();
       fallback.forEach((doc) => { parentDoc = doc.data(); });
     }
-
-    if (!parentDoc) {
-      panel.innerHTML = `<p class="card-copy">No parent has registered for this student yet.</p>`;
-      return;
-    }
-    if (parentDoc.status === "pending") {
-      panel.innerHTML = `<p class="card-copy">A parent has registered but is still pending approval.</p>`;
-      return;
-    }
-
+    if (!parentDoc) { panel.innerHTML = `<p class="card-copy">No parent has registered for this student yet.</p>`; return; }
+    if (parentDoc.status === "pending") { panel.innerHTML = `<p class="card-copy">A parent has registered but is still pending approval.</p>`; return; }
     panel.innerHTML = renderDocumentsHTML(parentDoc.documents || {});
   } catch (err) {
     console.error(err);
@@ -836,10 +809,7 @@ async function deleteStudent(studentId) {
 if (studentSearchInput) {
   studentSearchInput.addEventListener("input", () => {
     const q = studentSearchInput.value.trim().toLowerCase();
-    if (!q) {
-      renderStudents(cachedStudents);
-      return;
-    }
+    if (!q) { renderStudents(cachedStudents); return; }
     const filtered = cachedStudents.filter((s) =>
       (s.name || "").toLowerCase().includes(q) ||
       (s.admissionNumber || "").toLowerCase().includes(q) ||
@@ -881,7 +851,6 @@ async function loadAttendanceForToday() {
 async function loadAttendanceForDate(dateStr) {
   if (!currentTeacherClassId) return;
   attendanceStudentList.innerHTML = `<p class="card-copy">Loading students…</p>`;
-
   try {
     const snap = await db.collection("students").where("classId", "==", currentTeacherClassId).get();
     attendanceStudentsCache = [];
@@ -893,7 +862,6 @@ async function loadAttendanceForDate(dateStr) {
       return;
     }
 
-    // Load any existing attendance already saved for this date, so it's editable
     const attendanceId = `${currentTeacherClassId}_${dateStr}`;
     const existingSnap = await db.collection("attendance").doc(attendanceId).get();
     const existingRecords = existingSnap.exists ? (existingSnap.data().records || {}) : {};
@@ -931,14 +899,8 @@ async function loadAttendanceForDate(dateStr) {
 if (saveAttendanceBtn) {
   saveAttendanceBtn.addEventListener("click", async () => {
     const dateStr = attendanceDate.value;
-    if (!dateStr) {
-      attendanceStatus.textContent = "Please choose a date.";
-      return;
-    }
-    if (!currentTeacherClassId) {
-      attendanceStatus.textContent = "No class assigned.";
-      return;
-    }
+    if (!dateStr) { attendanceStatus.textContent = "Please choose a date."; return; }
+    if (!currentTeacherClassId) { attendanceStatus.textContent = "No class assigned."; return; }
 
     const records = {};
     attendanceStudentList.querySelectorAll(".attendance-toggle").forEach((toggle) => {
@@ -949,7 +911,6 @@ if (saveAttendanceBtn) {
 
     saveAttendanceBtn.disabled = true;
     attendanceStatus.textContent = "Saving…";
-
     try {
       const attendanceId = `${currentTeacherClassId}_${dateStr}`;
       await db.collection("attendance").doc(attendanceId).set({
@@ -969,44 +930,25 @@ if (saveAttendanceBtn) {
   });
 }
 
-// ---------- PARENT: view attendance ----------
 async function loadParentAttendance(studentId, studentClassName, studentName) {
   const list = document.getElementById("parentAttendanceList");
   const title = document.getElementById("parentAttendanceTitle");
   if (!list) return;
-
-  if (!studentId) {
-    list.innerHTML = `<p class="card-copy">No linked student record found.</p>`;
-    return;
-  }
+  if (!studentId) { list.innerHTML = `<p class="card-copy">No linked student record found.</p>`; return; }
   if (title) title.textContent = studentName ? `${studentName}'s attendance` : "Attendance";
   list.innerHTML = `<p class="card-copy">Loading…</p>`;
-
   try {
-    // We don't know the classId directly here in older records, so look
-    // it up fresh from the student record to be safe.
     const studentSnap = await db.collection("students").doc(studentId).get();
-    if (!studentSnap.exists) {
-      list.innerHTML = `<p class="card-copy">Student record not found.</p>`;
-      return;
-    }
+    if (!studentSnap.exists) { list.innerHTML = `<p class="card-copy">Student record not found.</p>`; return; }
     const classId = studentSnap.data().classId;
-
     const snap = await db.collection("attendance").where("classId", "==", classId).get();
     const entries = [];
     snap.forEach((doc) => {
       const d = doc.data();
-      if (d.records && d.records[studentId]) {
-        entries.push({ date: d.date, status: d.records[studentId] });
-      }
+      if (d.records && d.records[studentId]) entries.push({ date: d.date, status: d.records[studentId] });
     });
-    entries.sort((a, b) => (a.date < b.date ? 1 : -1)); // most recent first
-
-    if (entries.length === 0) {
-      list.innerHTML = `<p class="card-copy">No attendance records yet.</p>`;
-      return;
-    }
-
+    entries.sort((a, b) => (a.date < b.date ? 1 : -1));
+    if (entries.length === 0) { list.innerHTML = `<p class="card-copy">No attendance records yet.</p>`; return; }
     list.innerHTML = "";
     entries.forEach((e) => {
       const row = document.createElement("div");
@@ -1018,5 +960,382 @@ async function loadParentAttendance(studentId, studentClassName, studentName) {
   } catch (err) {
     console.error(err);
     list.innerHTML = `<p class="card-copy">Couldn't load attendance.</p>`;
+  }
+}
+
+// ---------- SHARED HELPER ----------
+async function resolveStudentClassId(studentId) {
+  if (!studentId) return null;
+  try {
+    const snap = await db.collection("students").doc(studentId).get();
+    return snap.exists ? snap.data().classId : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// ---------- ADMIN: SEND NOTICES ----------
+const noticeTitle = document.getElementById("noticeTitle");
+const noticeBody = document.getElementById("noticeBody");
+const noticeTarget = document.getElementById("noticeTarget");
+const postNoticeBtn = document.getElementById("postNoticeBtn");
+const noticeStatus = document.getElementById("noticeStatus");
+const noticeListAdmin = document.getElementById("noticeListAdmin");
+
+function populateNoticeTargetDropdown() {
+  if (!noticeTarget) return;
+  const options = ['<option value="">Everyone (whole school)</option>']
+    .concat(cachedClasses.map((c) => `<option value="${c.id}">${c.name} only</option>`));
+  noticeTarget.innerHTML = options.join("");
+}
+
+if (postNoticeBtn) {
+  postNoticeBtn.addEventListener("click", async () => {
+    const title = noticeTitle.value.trim();
+    const body = noticeBody.value.trim();
+    const classId = noticeTarget.value || null;
+    if (!title || !body) { noticeStatus.textContent = "Please fill in both title and message."; return; }
+
+    postNoticeBtn.disabled = true;
+    noticeStatus.textContent = "Sending…";
+    try {
+      const className = classId ? (cachedClasses.find((c) => c.id === classId) || {}).name || "" : "";
+      await db.collection("posts").add({
+        category: "notice", title, body, classId, className,
+        postedByRole: "admin", postedByName: "Principal",
+        createdAt: Date.now(),
+      });
+      noticeTitle.value = "";
+      noticeBody.value = "";
+      noticeStatus.textContent = "Notice sent.";
+      loadAdminNotices();
+    } catch (err) {
+      console.error(err);
+      noticeStatus.textContent = "Couldn't send notice. Please try again.";
+    }
+    postNoticeBtn.disabled = false;
+  });
+}
+
+async function loadAdminNotices() {
+  if (!noticeListAdmin) return;
+  noticeListAdmin.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("posts").where("category", "==", "notice").get();
+    const notices = [];
+    snap.forEach((doc) => notices.push(doc.data()));
+    notices.sort((a, b) => b.createdAt - a.createdAt);
+    if (notices.length === 0) { noticeListAdmin.innerHTML = `<p class="card-copy">No notices sent yet.</p>`; return; }
+    noticeListAdmin.innerHTML = notices.map((n) => `
+      <div class="doc-row">
+        <div class="doc-label">${n.title} ${n.classId ? `<span class="member-role">${n.className}</span>` : `<span class="member-role">Everyone</span>`}</div>
+        <p class="card-copy" style="margin-top:0.3rem;">${n.body}</p>
+      </div>
+    `).join("");
+  } catch (err) {
+    noticeListAdmin.innerHTML = `<p class="card-copy">Couldn't load notices.</p>`;
+  }
+}
+
+// ---------- ADMIN: ALL RESULTS ----------
+const allResultsList = document.getElementById("allResultsList");
+
+async function loadAllResults() {
+  if (!allResultsList) return;
+  allResultsList.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("results").get();
+    const results = [];
+    snap.forEach((doc) => results.push(doc.data()));
+    results.sort((a, b) => b.createdAt - a.createdAt);
+    if (results.length === 0) { allResultsList.innerHTML = `<p class="card-copy">No results uploaded yet.</p>`; return; }
+    allResultsList.innerHTML = results.map((r) => `
+      <div class="admin-doc-row">
+        <span>${r.studentName} — ${r.subject} (${r.term})</span>
+        <span>${r.marks}/${r.maxMarks}</span>
+      </div>
+    `).join("");
+  } catch (err) {
+    allResultsList.innerHTML = `<p class="card-copy">Couldn't load results.</p>`;
+  }
+}
+
+// ---------- ADMIN: TIMETABLE ----------
+const timetableClassSelect = document.getElementById("timetableClassSelect");
+const timetableText = document.getElementById("timetableText");
+const saveTimetableBtn = document.getElementById("saveTimetableBtn");
+const timetableStatus = document.getElementById("timetableStatus");
+
+function populateTimetableClassDropdown() {
+  if (!timetableClassSelect) return;
+  timetableClassSelect.innerHTML = cachedClasses.length
+    ? cachedClasses.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
+    : `<option value="">No classes yet</option>`;
+  if (cachedClasses.length > 0) loadTimetableIntoEditor(cachedClasses[0].id);
+}
+if (timetableClassSelect) {
+  timetableClassSelect.addEventListener("change", () => loadTimetableIntoEditor(timetableClassSelect.value));
+}
+
+async function loadTimetableIntoEditor(classId) {
+  if (!classId) { timetableText.value = ""; return; }
+  try {
+    const snap = await db.collection("timetables").doc(classId).get();
+    timetableText.value = snap.exists ? snap.data().scheduleText : "";
+  } catch (err) {
+    timetableText.value = "";
+  }
+}
+
+if (saveTimetableBtn) {
+  saveTimetableBtn.addEventListener("click", async () => {
+    const classId = timetableClassSelect.value;
+    if (!classId) { timetableStatus.textContent = "Please add a class first."; return; }
+    const className = (cachedClasses.find((c) => c.id === classId) || {}).name || "";
+
+    saveTimetableBtn.disabled = true;
+    timetableStatus.textContent = "Saving…";
+    try {
+      await db.collection("timetables").doc(classId).set({
+        classId, className,
+        scheduleText: timetableText.value,
+        updatedAt: Date.now(),
+      });
+      timetableStatus.textContent = "Timetable saved.";
+    } catch (err) {
+      console.error(err);
+      timetableStatus.textContent = "Couldn't save. Please try again.";
+    }
+    saveTimetableBtn.disabled = false;
+  });
+}
+
+// ---------- TEACHER: CLASS POSTS ----------
+const postCategory = document.getElementById("postCategory");
+const postTitle = document.getElementById("postTitle");
+const postBody = document.getElementById("postBody");
+const submitPostBtn = document.getElementById("submitPostBtn");
+const postStatus = document.getElementById("postStatus");
+const teacherPostsList = document.getElementById("teacherPostsList");
+
+if (submitPostBtn) {
+  submitPostBtn.addEventListener("click", async () => {
+    const title = postTitle.value.trim();
+    const body = postBody.value.trim();
+    const category = postCategory.value;
+    if (!title || !body) { postStatus.textContent = "Please fill in both title and details."; return; }
+    if (!currentTeacherClassId) { postStatus.textContent = "No class assigned."; return; }
+
+    submitPostBtn.disabled = true;
+    postStatus.textContent = "Posting…";
+    try {
+      await db.collection("posts").add({
+        category, title, body,
+        classId: currentTeacherClassId,
+        className: currentTeacherClassName,
+        postedByRole: "teacher",
+        postedByName: roleLabel.textContent.replace("Teacher — ", ""),
+        createdAt: Date.now(),
+      });
+      postTitle.value = "";
+      postBody.value = "";
+      postStatus.textContent = "Posted.";
+      loadTeacherPosts();
+    } catch (err) {
+      console.error(err);
+      postStatus.textContent = "Couldn't post. Please try again.";
+    }
+    submitPostBtn.disabled = false;
+  });
+}
+
+async function loadTeacherPosts() {
+  if (!teacherPostsList || !currentTeacherClassId) return;
+  teacherPostsList.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("posts").where("classId", "==", currentTeacherClassId).get();
+    const posts = [];
+    snap.forEach((doc) => { if (doc.data().category !== "notice") posts.push(doc.data()); });
+    posts.sort((a, b) => b.createdAt - a.createdAt);
+    if (posts.length === 0) { teacherPostsList.innerHTML = `<p class="card-copy">No posts yet.</p>`; return; }
+    const catLabels = { homework: "Homework", notes: "Notes", announcement: "Announcement" };
+    teacherPostsList.innerHTML = posts.map((p) => `
+      <div class="doc-row">
+        <div class="doc-label">${p.title} <span class="member-role">${catLabels[p.category] || p.category}</span></div>
+        <p class="card-copy" style="margin-top:0.3rem;">${p.body}</p>
+      </div>
+    `).join("");
+  } catch (err) {
+    teacherPostsList.innerHTML = `<p class="card-copy">Couldn't load posts.</p>`;
+  }
+}
+
+// ---------- TEACHER: RESULTS ----------
+const resultStudent = document.getElementById("resultStudent");
+const resultSubject = document.getElementById("resultSubject");
+const resultTerm = document.getElementById("resultTerm");
+const resultMarks = document.getElementById("resultMarks");
+const resultMaxMarks = document.getElementById("resultMaxMarks");
+const submitResultBtn = document.getElementById("submitResultBtn");
+const resultStatus = document.getElementById("resultStatus");
+const teacherResultsList = document.getElementById("teacherResultsList");
+
+async function loadTeacherClassStudents() {
+  if (!resultStudent || !currentTeacherClassId) return;
+  try {
+    const snap = await db.collection("students").where("classId", "==", currentTeacherClassId).get();
+    const students = [];
+    snap.forEach((doc) => students.push({ id: doc.id, ...doc.data() }));
+    students.sort((a, b) => a.name.localeCompare(b.name));
+    resultStudent.innerHTML = students.length
+      ? students.map((s) => `<option value="${s.id}" data-name="${s.name}">${s.name}</option>`).join("")
+      : `<option value="">No students in your class</option>`;
+  } catch (err) {
+    resultStudent.innerHTML = `<option value="">Couldn't load students</option>`;
+  }
+}
+
+if (submitResultBtn) {
+  submitResultBtn.addEventListener("click", async () => {
+    const studentId = resultStudent.value;
+    const studentName = resultStudent.selectedOptions[0] ? resultStudent.selectedOptions[0].dataset.name : "";
+    const subject = resultSubject.value.trim();
+    const term = resultTerm.value.trim();
+    const marks = resultMarks.value.trim();
+    const maxMarks = resultMaxMarks.value.trim();
+    if (!studentId) { resultStatus.textContent = "Please choose a student."; return; }
+    if (!subject || !term || !marks || !maxMarks) { resultStatus.textContent = "Please fill in all fields."; return; }
+
+    submitResultBtn.disabled = true;
+    resultStatus.textContent = "Saving…";
+    try {
+      await db.collection("results").add({
+        studentId, studentName, subject, term,
+        marks: Number(marks), maxMarks: Number(maxMarks),
+        classId: currentTeacherClassId,
+        createdAt: Date.now(),
+      });
+      resultSubject.value = "";
+      resultTerm.value = "";
+      resultMarks.value = "";
+      resultMaxMarks.value = "";
+      resultStatus.textContent = "Result saved.";
+      loadTeacherResults();
+    } catch (err) {
+      console.error(err);
+      resultStatus.textContent = "Couldn't save. Please try again.";
+    }
+    submitResultBtn.disabled = false;
+  });
+}
+
+async function loadTeacherResults() {
+  if (!teacherResultsList || !currentTeacherClassId) return;
+  teacherResultsList.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("results").where("classId", "==", currentTeacherClassId).get();
+    const results = [];
+    snap.forEach((doc) => results.push(doc.data()));
+    results.sort((a, b) => b.createdAt - a.createdAt);
+    if (results.length === 0) { teacherResultsList.innerHTML = `<p class="card-copy">No results uploaded yet.</p>`; return; }
+    teacherResultsList.innerHTML = results.map((r) => `
+      <div class="admin-doc-row">
+        <span>${r.studentName} — ${r.subject} (${r.term})</span>
+        <span>${r.marks}/${r.maxMarks}</span>
+      </div>
+    `).join("");
+  } catch (err) {
+    teacherResultsList.innerHTML = `<p class="card-copy">Couldn't load results.</p>`;
+  }
+}
+
+// ---------- TEACHER: TIMETABLE VIEW ----------
+async function loadTeacherTimetable() {
+  const view = document.getElementById("teacherTimetableView");
+  if (!view || !currentTeacherClassId) return;
+  view.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("timetables").doc(currentTeacherClassId).get();
+    view.innerHTML = snap.exists && snap.data().scheduleText
+      ? `<p class="card-copy" style="white-space:pre-wrap;">${snap.data().scheduleText}</p>`
+      : `<p class="card-copy">No timetable set yet.</p>`;
+  } catch (err) {
+    view.innerHTML = `<p class="card-copy">Couldn't load timetable.</p>`;
+  }
+}
+
+// ---------- PARENT: NOTICES ----------
+async function loadParentNotices(classId) {
+  const list = document.getElementById("parentNoticesList");
+  if (!list) return;
+  list.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("posts").where("category", "==", "notice").get();
+    const notices = [];
+    snap.forEach((doc) => {
+      const d = doc.data();
+      if (!d.classId || d.classId === classId) notices.push(d);
+    });
+    notices.sort((a, b) => b.createdAt - a.createdAt);
+    list.innerHTML = notices.length
+      ? notices.map((n) => `<div class="doc-row"><div class="doc-label">${n.title}</div><p class="card-copy" style="margin-top:0.3rem;">${n.body}</p></div>`).join("")
+      : `<p class="card-copy">No notices yet.</p>`;
+  } catch (err) {
+    list.innerHTML = `<p class="card-copy">Couldn't load notices.</p>`;
+  }
+}
+
+// ---------- PARENT: CLASS POSTS ----------
+async function loadParentPosts(classId) {
+  const list = document.getElementById("parentPostsList");
+  if (!list) return;
+  if (!classId) { list.innerHTML = `<p class="card-copy">No class linked yet.</p>`; return; }
+  list.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("posts").where("classId", "==", classId).get();
+    const posts = [];
+    snap.forEach((doc) => { if (doc.data().category !== "notice") posts.push(doc.data()); });
+    posts.sort((a, b) => b.createdAt - a.createdAt);
+    const catLabels = { homework: "Homework", notes: "Notes", announcement: "Announcement" };
+    list.innerHTML = posts.length
+      ? posts.map((p) => `<div class="doc-row"><div class="doc-label">${p.title} <span class="member-role">${catLabels[p.category] || p.category}</span></div><p class="card-copy" style="margin-top:0.3rem;">${p.body}</p></div>`).join("")
+      : `<p class="card-copy">Nothing posted yet.</p>`;
+  } catch (err) {
+    list.innerHTML = `<p class="card-copy">Couldn't load updates.</p>`;
+  }
+}
+
+// ---------- PARENT: RESULTS ----------
+async function loadParentResults(studentId) {
+  const list = document.getElementById("parentResultsList");
+  if (!list) return;
+  if (!studentId) { list.innerHTML = `<p class="card-copy">No linked student record found.</p>`; return; }
+  list.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("results").where("studentId", "==", studentId).get();
+    const results = [];
+    snap.forEach((doc) => results.push(doc.data()));
+    results.sort((a, b) => b.createdAt - a.createdAt);
+    list.innerHTML = results.length
+      ? results.map((r) => `<div class="admin-doc-row"><span>${r.subject} (${r.term})</span><span>${r.marks}/${r.maxMarks}</span></div>`).join("")
+      : `<p class="card-copy">No results yet.</p>`;
+  } catch (err) {
+    list.innerHTML = `<p class="card-copy">Couldn't load results.</p>`;
+  }
+}
+
+// ---------- PARENT: TIMETABLE ----------
+async function loadParentTimetable(classId) {
+  const view = document.getElementById("parentTimetableView");
+  if (!view) return;
+  if (!classId) { view.innerHTML = `<p class="card-copy">No class linked yet.</p>`; return; }
+  view.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("timetables").doc(classId).get();
+    view.innerHTML = snap.exists && snap.data().scheduleText
+      ? `<p class="card-copy" style="white-space:pre-wrap;">${snap.data().scheduleText}</p>`
+      : `<p class="card-copy">No timetable set yet.</p>`;
+  } catch (err) {
+    view.innerHTML = `<p class="card-copy">Couldn't load timetable.</p>`;
   }
 }
