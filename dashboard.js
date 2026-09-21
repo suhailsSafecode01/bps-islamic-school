@@ -8,6 +8,7 @@ const manageStudentsCard = document.getElementById("manageStudentsCard");
 const sendNoticeCard = document.getElementById("sendNoticeCard");
 const allResultsCard = document.getElementById("allResultsCard");
 const setTimetableCard = document.getElementById("setTimetableCard");
+const setFeesCard = document.getElementById("setFeesCard");
 const teacherCard = document.getElementById("teacherCard");
 const attendanceCard = document.getElementById("attendanceCard");
 const teacherPostsCard = document.getElementById("teacherPostsCard");
@@ -20,14 +21,15 @@ const parentNoticesCard = document.getElementById("parentNoticesCard");
 const parentPostsCard = document.getElementById("parentPostsCard");
 const parentResultsCard = document.getElementById("parentResultsCard");
 const parentTimetableCard = document.getElementById("parentTimetableCard");
+const parentFeesCard = document.getElementById("parentFeesCard");
 const roleLabel = document.getElementById("roleLabel");
 const signOutBtn = document.getElementById("signOutBtn");
 
 const ALL_CARDS = [
   notSignedInCard, adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard,
-  sendNoticeCard, allResultsCard, setTimetableCard,
+  sendNoticeCard, allResultsCard, setTimetableCard, setFeesCard,
   teacherCard, attendanceCard, teacherPostsCard, teacherResultsCard, teacherTimetableCard,
-  parentCard, documentsCard, parentAttendanceCard, parentNoticesCard, parentPostsCard, parentResultsCard, parentTimetableCard,
+  parentCard, documentsCard, parentAttendanceCard, parentNoticesCard, parentPostsCard, parentResultsCard, parentTimetableCard, parentFeesCard,
 ];
 
 function showOnly(elOrList) {
@@ -67,15 +69,17 @@ auth.onAuthStateChanged(async (user) => {
 
     if (data.role === "admin") {
       roleLabel.textContent = "Admin — " + data.name;
-      showOnly([adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard, sendNoticeCard, allResultsCard, setTimetableCard]);
+      showOnly([adminCard, pendingRequestsCard, addMemberCard, manageClassesCard, manageStudentsCard, sendNoticeCard, allResultsCard, setTimetableCard, setFeesCard]);
       loadPendingRequests();
       await loadClasses(); // must finish first — dependent dropdowns need this cache
       loadMemberList();
-      loadStudents();
+      await loadStudents();
+      populateFeesStudentDropdown();
       populateNoticeTargetDropdown();
       populateTimetableClassDropdown();
       loadAdminNotices();
       loadAllResults();
+      loadAllFees();
     } else if (data.role === "teacher") {
       roleLabel.textContent = "Teacher — " + data.name;
       showOnly([teacherCard, attendanceCard, teacherPostsCard, teacherResultsCard, teacherTimetableCard]);
@@ -88,9 +92,10 @@ auth.onAuthStateChanged(async (user) => {
       loadTeacherPosts();
       loadTeacherResults();
       loadTeacherTimetable();
+      checkForNewContent(currentTeacherClassId);
     } else {
       roleLabel.textContent = "Parent — " + data.name;
-      showOnly([parentCard, documentsCard, parentAttendanceCard, parentNoticesCard, parentPostsCard, parentResultsCard, parentTimetableCard]);
+      showOnly([parentCard, documentsCard, parentAttendanceCard, parentNoticesCard, parentPostsCard, parentResultsCard, parentTimetableCard, parentFeesCard]);
       currentUserId = user.uid;
       renderDocuments(data.documents || {});
       loadParentAttendance(data.studentId, data.studentClassName, data.studentName);
@@ -99,6 +104,8 @@ auth.onAuthStateChanged(async (user) => {
       loadParentPosts(parentClassId);
       loadParentResults(data.studentId);
       loadParentTimetable(parentClassId);
+      loadParentFees(data.studentId);
+      checkForNewContent(parentClassId);
     }
   } catch (err) {
     console.error(err);
@@ -1023,18 +1030,37 @@ async function loadAdminNotices() {
   try {
     const snap = await db.collection("posts").where("category", "==", "notice").get();
     const notices = [];
-    snap.forEach((doc) => notices.push(doc.data()));
+    snap.forEach((doc) => notices.push({ id: doc.id, ...doc.data() }));
     notices.sort((a, b) => b.createdAt - a.createdAt);
     if (notices.length === 0) { noticeListAdmin.innerHTML = `<p class="card-copy">No notices sent yet.</p>`; return; }
     noticeListAdmin.innerHTML = notices.map((n) => `
       <div class="doc-row">
         <div class="doc-label">${n.title} ${n.classId ? `<span class="member-role">${n.className}</span>` : `<span class="member-role">Everyone</span>`}</div>
         <p class="card-copy" style="margin-top:0.3rem;">${n.body}</p>
+        <button class="btn-remove delete-item-btn" data-coll="posts" data-id="${n.id}" data-reload="loadAdminNotices">Delete</button>
       </div>
     `).join("");
+    wireDeleteButtons(noticeListAdmin);
   } catch (err) {
     noticeListAdmin.innerHTML = `<p class="card-copy">Couldn't load notices.</p>`;
   }
+}
+
+function wireDeleteButtons(container) {
+  container.querySelectorAll(".delete-item-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this? This cannot be undone.")) return;
+      btn.disabled = true;
+      try {
+        await db.collection(btn.dataset.coll).doc(btn.dataset.id).delete();
+        window[btn.dataset.reload]();
+      } catch (err) {
+        console.error(err);
+        alert("Couldn't delete. Please try again.");
+        btn.disabled = false;
+      }
+    });
+  });
 }
 
 // ---------- ADMIN: ALL RESULTS ----------
@@ -1046,15 +1072,16 @@ async function loadAllResults() {
   try {
     const snap = await db.collection("results").get();
     const results = [];
-    snap.forEach((doc) => results.push(doc.data()));
+    snap.forEach((doc) => results.push({ id: doc.id, ...doc.data() }));
     results.sort((a, b) => b.createdAt - a.createdAt);
     if (results.length === 0) { allResultsList.innerHTML = `<p class="card-copy">No results uploaded yet.</p>`; return; }
     allResultsList.innerHTML = results.map((r) => `
       <div class="admin-doc-row">
-        <span>${r.studentName} — ${r.subject} (${r.term})</span>
-        <span>${r.marks}/${r.maxMarks}</span>
+        <span>${r.studentName} — ${r.subject} (${r.term}): ${r.marks}/${r.maxMarks}</span>
+        <button class="btn-remove delete-item-btn" data-coll="results" data-id="${r.id}" data-reload="loadAllResults">Delete</button>
       </div>
     `).join("");
+    wireDeleteButtons(allResultsList);
   } catch (err) {
     allResultsList.innerHTML = `<p class="card-copy">Couldn't load results.</p>`;
   }
@@ -1155,7 +1182,7 @@ async function loadTeacherPosts() {
   try {
     const snap = await db.collection("posts").where("classId", "==", currentTeacherClassId).get();
     const posts = [];
-    snap.forEach((doc) => { if (doc.data().category !== "notice") posts.push(doc.data()); });
+    snap.forEach((doc) => { if (doc.data().category !== "notice") posts.push({ id: doc.id, ...doc.data() }); });
     posts.sort((a, b) => b.createdAt - a.createdAt);
     if (posts.length === 0) { teacherPostsList.innerHTML = `<p class="card-copy">No posts yet.</p>`; return; }
     const catLabels = { homework: "Homework", notes: "Notes", announcement: "Announcement" };
@@ -1163,8 +1190,10 @@ async function loadTeacherPosts() {
       <div class="doc-row">
         <div class="doc-label">${p.title} <span class="member-role">${catLabels[p.category] || p.category}</span></div>
         <p class="card-copy" style="margin-top:0.3rem;">${p.body}</p>
+        <button class="btn-remove delete-item-btn" data-coll="posts" data-id="${p.id}" data-reload="loadTeacherPosts">Delete</button>
       </div>
     `).join("");
+    wireDeleteButtons(teacherPostsList);
   } catch (err) {
     teacherPostsList.innerHTML = `<p class="card-copy">Couldn't load posts.</p>`;
   }
@@ -1235,15 +1264,16 @@ async function loadTeacherResults() {
   try {
     const snap = await db.collection("results").where("classId", "==", currentTeacherClassId).get();
     const results = [];
-    snap.forEach((doc) => results.push(doc.data()));
+    snap.forEach((doc) => results.push({ id: doc.id, ...doc.data() }));
     results.sort((a, b) => b.createdAt - a.createdAt);
     if (results.length === 0) { teacherResultsList.innerHTML = `<p class="card-copy">No results uploaded yet.</p>`; return; }
     teacherResultsList.innerHTML = results.map((r) => `
       <div class="admin-doc-row">
-        <span>${r.studentName} — ${r.subject} (${r.term})</span>
-        <span>${r.marks}/${r.maxMarks}</span>
+        <span>${r.studentName} — ${r.subject} (${r.term}): ${r.marks}/${r.maxMarks}</span>
+        <button class="btn-remove delete-item-btn" data-coll="results" data-id="${r.id}" data-reload="loadTeacherResults">Delete</button>
       </div>
     `).join("");
+    wireDeleteButtons(teacherResultsList);
   } catch (err) {
     teacherResultsList.innerHTML = `<p class="card-copy">Couldn't load results.</p>`;
   }
@@ -1337,5 +1367,162 @@ async function loadParentTimetable(classId) {
       : `<p class="card-copy">No timetable set yet.</p>`;
   } catch (err) {
     view.innerHTML = `<p class="card-copy">Couldn't load timetable.</p>`;
+  }
+}
+
+// ---------- ADMIN: CLEAR TIMETABLE ----------
+const clearTimetableBtn = document.getElementById("clearTimetableBtn");
+if (clearTimetableBtn) {
+  clearTimetableBtn.addEventListener("click", async () => {
+    const classId = timetableClassSelect.value;
+    if (!classId) return;
+    if (!confirm("Clear this class's timetable?")) return;
+    try {
+      await db.collection("timetables").doc(classId).delete();
+      timetableText.value = "";
+      timetableStatus.textContent = "Timetable cleared.";
+    } catch (err) {
+      timetableStatus.textContent = "Couldn't clear. Please try again.";
+    }
+  });
+}
+
+// ---------- ADMIN: FEES ----------
+const feesStudentSelect = document.getElementById("feesStudentSelect");
+const feesAmount = document.getElementById("feesAmount");
+const feesNote = document.getElementById("feesNote");
+const feesTypePicker = document.getElementById("feesTypePicker");
+const submitFeesBtn = document.getElementById("submitFeesBtn");
+const feesStatus = document.getElementById("feesStatus");
+const allFeesList = document.getElementById("allFeesList");
+
+let selectedFeesType = "charge";
+if (feesTypePicker) {
+  feesTypePicker.querySelectorAll(".role-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      feesTypePicker.querySelectorAll(".role-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedFeesType = btn.dataset.type;
+    });
+  });
+}
+
+function populateFeesStudentDropdown() {
+  if (!feesStudentSelect) return;
+  feesStudentSelect.innerHTML = cachedStudents.length
+    ? cachedStudents.map((s) => `<option value="${s.id}" data-name="${s.name}">${s.name} (${s.className || "no class"})</option>`).join("")
+    : `<option value="">No students yet</option>`;
+}
+
+if (submitFeesBtn) {
+  submitFeesBtn.addEventListener("click", async () => {
+    const studentId = feesStudentSelect.value;
+    const studentName = feesStudentSelect.selectedOptions[0] ? feesStudentSelect.selectedOptions[0].dataset.name : "";
+    const amount = Number(feesAmount.value);
+    const note = feesNote.value.trim();
+
+    if (!studentId) { feesStatus.textContent = "Please choose a student."; return; }
+    if (!amount || amount <= 0) { feesStatus.textContent = "Please enter a valid amount."; return; }
+
+    submitFeesBtn.disabled = true;
+    feesStatus.textContent = "Saving…";
+    try {
+      const snap = await db.collection("fees").doc(studentId).get();
+      const existing = snap.exists ? snap.data() : { studentId, studentName, amountDue: 0, history: [] };
+      const delta = selectedFeesType === "charge" ? amount : -amount;
+      existing.amountDue = (existing.amountDue || 0) + delta;
+      existing.studentName = studentName;
+      existing.history = existing.history || [];
+      existing.history.push({ type: selectedFeesType, amount, note, date: Date.now() });
+      await db.collection("fees").doc(studentId).set(existing);
+
+      feesAmount.value = "";
+      feesNote.value = "";
+      feesStatus.textContent = "Saved.";
+      loadAllFees();
+    } catch (err) {
+      console.error(err);
+      feesStatus.textContent = "Couldn't save. Please try again.";
+    }
+    submitFeesBtn.disabled = false;
+  });
+}
+
+async function loadAllFees() {
+  if (!allFeesList) return;
+  allFeesList.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("fees").get();
+    const fees = [];
+    snap.forEach((doc) => fees.push({ id: doc.id, ...doc.data() }));
+    fees.sort((a, b) => (b.amountDue || 0) - (a.amountDue || 0));
+    if (fees.length === 0) { allFeesList.innerHTML = `<p class="card-copy">No fee records yet.</p>`; return; }
+    allFeesList.innerHTML = fees.map((f) => `
+      <div class="admin-doc-row">
+        <span>${f.studentName}</span>
+        <span class="${f.amountDue > 0 ? "att-absent-label" : "att-present-label"}">₹${f.amountDue || 0} ${f.amountDue > 0 ? "due" : "clear"}</span>
+        <button class="btn-remove delete-item-btn" data-coll="fees" data-id="${f.id}" data-reload="loadAllFees">Delete</button>
+      </div>
+    `).join("");
+    wireDeleteButtons(allFeesList);
+  } catch (err) {
+    allFeesList.innerHTML = `<p class="card-copy">Couldn't load fees.</p>`;
+  }
+}
+
+// ---------- PARENT: FEES VIEW ----------
+async function loadParentFees(studentId) {
+  const view = document.getElementById("parentFeesView");
+  if (!view) return;
+  if (!studentId) { view.innerHTML = `<p class="card-copy">No linked student record found.</p>`; return; }
+  view.innerHTML = `<p class="card-copy">Loading…</p>`;
+  try {
+    const snap = await db.collection("fees").doc(studentId).get();
+    if (!snap.exists || !snap.data().amountDue) {
+      view.innerHTML = `<p class="card-copy att-present-label">No pending fees. ✓</p>`;
+      return;
+    }
+    const data = snap.data();
+    view.innerHTML = `
+      <div class="admin-doc-row">
+        <span>Amount due</span>
+        <span class="att-absent-label">₹${data.amountDue}</span>
+      </div>
+      <p class="card-copy" style="margin-top:0.6rem;">Please contact the school office to pay.</p>
+    `;
+  } catch (err) {
+    view.innerHTML = `<p class="card-copy">Couldn't load fees.</p>`;
+  }
+}
+
+// ---------- IN-APP NOTIFICATION BANNER ----------
+const notifBanner = document.getElementById("notifBanner");
+const notifBannerText = document.getElementById("notifBannerText");
+const notifBannerDismiss = document.getElementById("notifBannerDismiss");
+
+if (notifBannerDismiss) {
+  notifBannerDismiss.addEventListener("click", () => {
+    notifBanner.classList.add("hidden");
+    localStorage.setItem("bps_lastSeenNotif", String(Date.now()));
+  });
+}
+
+async function checkForNewContent(classIdFilter) {
+  if (!notifBanner) return;
+  try {
+    const lastSeen = Number(localStorage.getItem("bps_lastSeenNotif") || 0);
+    const snap = await db.collection("posts").get();
+    let found = false;
+    snap.forEach((doc) => {
+      const d = doc.data();
+      const relevant = !d.classId || d.classId === classIdFilter;
+      if (relevant && d.createdAt > lastSeen) found = true;
+    });
+    if (found) {
+      notifBannerText.textContent = "📢 New notices or updates are available below";
+      notifBanner.classList.remove("hidden");
+    }
+  } catch (err) {
+    // fail silently — banner is a nice-to-have, not critical
   }
 }
